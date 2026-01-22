@@ -1,41 +1,18 @@
 import cpeak, { parseJSON } from "cpeak";
-import Redis from "ioredis";
 import crypto from "crypto";
 import { DB } from "./database/index.js";
+import { redis } from "./database/redis.js";
+import { generateCode, getMaxId } from "./utils.js";
 
 const app = cpeak();
-const redis = new Redis();
 
 process.title = "node-cpeak";
 
 app.beforeEach(parseJSON({ limit: 1024 * 1024 }));
 
-const generateCode = () => {
-  // 375 random bytes becomes 500 Base64 characters
-  return crypto.randomBytes(375).toString("base64").substring(0, 500);
-};
-
-/*
-
-autocannon -m GET \
-  -c 5 -d 20 -p 2 --workers 1 \
-  "http://localhost:3000/simple"
-
-*/
-
 app.route("get", `/simple`, async (req, res) => {
   await res.json({ message: "hi" });
 });
-
-/*
-
-autocannon -m PATCH \
-  -c 5 -d 20 -p 2 --workers 1 \
-  -H "Content-Type: application/json" \
-  -b '{"foo1":"test","foo2":"test","foo3":"test","foo4":"test","foo5":"test","foo6":"test","foo7":"test","foo8":"test","foo9":"test","foo10":"test"}' \
-  "http://localhost:3000/update-something/123/john_doe?value1=abc&value2=xyz"
-
-*/
 
 app.route("patch", `/update-something/:id/:name`, (req, res) => {
   const { id, name } = req.params;
@@ -83,14 +60,6 @@ app.route("patch", `/update-something/:id/:name`, (req, res) => {
   });
 });
 
-/*
-
-autocannon -m POST \
-  -c 5 -d 20 -p 2 --workers 1 \
-  "http://localhost:3000/code"
-
-*/
-
 // Inserts a simple record to the database
 app.route("post", "/code", async (req, res, handleErr) => {
   const code = generateCode();
@@ -115,14 +84,6 @@ app.route("post", "/code", async (req, res, handleErr) => {
     return handleErr(err);
   }
 });
-
-/*
-
-autocannon -m GET \
-  -c 5 -d 20 -p 2 --workers 1 \
-  "http://localhost:3000/code"
-
-*/
 
 // Reads a simple random code from the database and returns it
 app.route("get", "/code-v1", async (req, res, handleErr) => {
@@ -247,8 +208,15 @@ app.route("post", "/code-fast", async (req, res, handleErr) => {
     const id = await redis.incr("codes:seq");
     const created_at = new Date().toISOString();
 
+    // Pipeline these for speed (1 network round trip instead of 2)
+    const pipeline = redis.pipeline();
     // Store Data (O(1) Hash Set)
-    await redis.hset(`code:${id}`, { id, code, created_at });
+    pipeline.hset(`code:${id}`, { id, code, created_at });
+
+    // We will add the ids to a queue so that later a background worker can sync to Postgres
+    pipeline.lpush("codes:sync_queue", id);
+
+    await pipeline.exec();
 
     res.status(201).json({
       created_code: { id, code, created_at },
@@ -262,10 +230,8 @@ app.route("post", "/code-fast", async (req, res, handleErr) => {
 app.route("get", "/code-fast", async (req, res, handleErr) => {
   try {
     // Get max ID
-    const maxIdStr = await redis.get("codes:seq");
-    if (!maxIdStr) return res.status(404).json({ error: "No codes found." });
-
-    const maxId = parseInt(maxIdStr, 10);
+    const maxId = await getMaxId();
+    if (maxId === 0) return res.status(404).json({ error: "No codes found." });
 
     // Generating a random ID
     const randomId = crypto.randomInt(1, maxId + 1);
@@ -284,11 +250,6 @@ app.route("get", "/code-fast", async (req, res, handleErr) => {
 });
 
 app.handleErr((err, req, res) => {
-  if (err.cpeak_err) {
-    console.log(err);
-    return res.status(err.status || 400).json({ error: err.message });
-  }
-
   console.error("Unhandled error:", err);
   res.status(500).json({ error: "Internal Server Error" });
 });

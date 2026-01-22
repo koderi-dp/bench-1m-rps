@@ -1,0 +1,21 @@
+autocannon -m GET \
+  -c 5 -d 20 -p 2 --workers 1 \
+  "http://localhost:3000/simple"
+
+
+autocannon -m PATCH \
+  -c 5 -d 20 -p 2 --workers 1 \
+  -H "Content-Type: application/json" \
+  -b '{"foo1":"test","foo2":"test","foo3":"test","foo4":"test","foo5":"test","foo6":"test","foo7":"test","foo8":"test","foo9":"test","foo10":"test"}' \
+  "http://localhost:3000/update-something/123/john_doe?value1=abc&value2=xyz"
+
+
+autocannon -m POST \
+  -c 5 -d 20 -p 2 --workers 1 \
+  "http://localhost:3000/code"
+
+
+
+autocannon -m GET \
+  -c 5 -d 20 -p 2 --workers 1 \
+  "http://localhost:3002/code-fast"
