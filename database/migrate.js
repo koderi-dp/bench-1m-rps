@@ -14,6 +14,10 @@ async function migrate() {
   let lastId = 0;
   let totalProcessed = 0;
 
+  // First flush existing Redis data to avoid duplicates
+  await redis.flushdb();
+  console.log("Flushed existing Redis data.");
+
   while (true) {
     // Fetch a batch of 2000 records
     const rows = await DB.query(

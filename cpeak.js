@@ -157,7 +157,7 @@ app.route("get", "/code-v3", async (req, res) => {
 });
 
 app.route("get", "/code-v4", async (req, res) => {
-  const randomId = crypto.randomInt(1, 700000 + 1);
+  const randomId = crypto.randomInt(1, 700000 + 1); // kinda like cheating
 
   // Fetch the record by ID (Index Lookup)
   const result = await DB.query(

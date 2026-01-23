@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import fs from "fs";
 import path from "path";
 import keys from "./keys.js";
+import { generateCode } from "../utils.js";
 
 // Create the database if it doesn't exist
 async function createDatabase() {
@@ -79,7 +80,55 @@ const databasePath = new URL("./", import.meta.url).pathname;
     console.log("\nCreating the tables...");
     await pool.query(codesTableSQL);
     console.log("[postgres] codes table was created successfully.");
+
+    await insertSeed();
   } catch (err) {
     console.error(err);
   }
 })();
+
+// Insert 20 million records. Read -r from terminal and that is the number of records to insert.
+async function insertSeed() {
+  const batchSize = 10000;
+
+  // We read this from the terminal option -r
+  const totalRecords = process.argv.includes("-r")
+    ? parseInt(process.argv[process.argv.indexOf("-r") + 1], 10)
+    : 0;
+
+  if (totalRecords === 0) {
+    console.log("No records to insert for seeding. Exiting.");
+    await pool.end();
+    process.exit();
+  }
+
+  console.log(`\nSeeding the database with ${totalRecords} records...`);
+
+  for (let offset = 0; offset < totalRecords; offset += batchSize) {
+    const values = [];
+    const placeholders = [];
+
+    for (let i = 0; i < batchSize; i++) {
+      const code = generateCode();
+      values.push(code);
+      placeholders.push(`($${i + 1})`);
+    }
+
+    const query = `
+      INSERT INTO codes (code)
+      VALUES ${placeholders.join(", ")}
+      ON CONFLICT (code) DO NOTHING
+    `;
+
+    await pool.query(query, values);
+    console.log(
+      `[postgres] inserted records: ${Math.min(
+        offset + batchSize,
+        totalRecords,
+      )}/${totalRecords}`,
+    );
+  }
+
+  console.log("\nDatabase seeding completed.");
+  await pool.end();
+}

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { redis } from "./database/redis.js";
 
 const generateCode = () => {
