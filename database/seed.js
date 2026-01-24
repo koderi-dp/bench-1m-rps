@@ -1,3 +1,15 @@
+/*
+
+Run this file like this:
+npm run seed
+
+To specify number of records to insert, use -r flag like this:
+npm run seed -- -r 20000000
+
+This will insert 20 million records.
+
+*/
+
 import { Pool } from "pg";
 import fs from "fs";
 import path from "path";

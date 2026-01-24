@@ -1,10 +1,13 @@
+/*
+ Run this script to migrate data from Postgres to Redis in batches.
+
+ This does not work when Redis is clustered.
+*/
+
 import { DB } from "./index.js";
 import Redis from "ioredis";
 
-const redis = new Redis({
-  host: "127.0.0.1",
-  port: 6379,
-});
+const redis = new Redis();
 
 const BATCH_SIZE = 2000;
 

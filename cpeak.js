@@ -207,6 +207,59 @@ app.route("post", "/code-fast", async (req, res) => {
   });
 });
 
+const getUniqBucket = (code) => {
+  const hash = crypto.createHash("md5").update(code).digest("hex");
+  return parseInt(hash.substring(0, 4), 16) % 128;
+};
+
+app.route("post", "/code-ultra-fast", async (req, res) => {
+  const id = crypto.randomUUID();
+  const code = generateCode();
+  const created_at = new Date().toISOString();
+
+  const bucket = getUniqBucket(code);
+  const isNew = await redis.sadd(`{uniq}:${bucket}`, code);
+  if (isNew === 0)
+    return res.status(409).json({ error: "Code already exists." });
+
+  const tag = `{code:${id}}`;
+  const storagePipeline = redis.pipeline();
+  storagePipeline.hset(tag, { id, code, created_at });
+  storagePipeline.lpush(`${tag}:sync`, id);
+
+  const shard = Math.floor(Math.random() * 15);
+  const activeIdsKey = `{active_ids}:${shard}`;
+
+  await Promise.all([storagePipeline.exec(), redis.sadd(activeIdsKey, id)]);
+
+  res.status(201).json({ created_code: { id, code, created_at } });
+});
+
+app.route("get", "/code-ultra-fast", async (req, res) => {
+  let shard = Math.floor(Math.random() * 15);
+  let randomId = null;
+
+  for (let i = 0; i < 15; i++) {
+    const currentShard = (shard + i) % 15;
+    randomId = await redis.srandmember(`{active_ids}:${currentShard}`);
+    if (randomId) break;
+  }
+
+  if (!randomId) {
+    return res
+      .status(404)
+      .json({ error: "Absolutely no codes found in any shard." });
+  }
+
+  const result = await redis.hgetall(`{code:${randomId}}`);
+
+  if (!result || Object.keys(result).length === 0) {
+    return res.status(404).json({ error: "Code expired or moved." });
+  }
+
+  res.json({ data: result });
+});
+
 // Gets a code but through Redis for super fast O(1) lookups
 app.route("get", "/code-fast", async (req, res) => {
   // Get max ID

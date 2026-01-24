@@ -229,6 +229,6 @@ app.setErrorHandler((err, req, res) => {
 });
 
 const PORT = 3002;
-app.listen({ port: PORT }, () => {
+app.listen({ port: PORT, host: "0.0.0.0" }, () => {
   console.log(`Fastify server running at http://localhost:${PORT}`);
 });
