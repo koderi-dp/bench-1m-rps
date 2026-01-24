@@ -208,13 +208,43 @@ app.route("post", "/code-fast", async (req, res) => {
 });
 
 app.route("post", "/code-ultra-fast", async (req, res) => {
-  const id = crypto.randomUUID();
+  /**
+   * We won't bother with id uniqueness here because at a rate of 1 million
+   * requests per second, it would take approximately 86,000 years to reach a 50%
+   * probability of at least one id duplicate.
+   *
+   *
+   * The math is based on the birthday problem approximation:
+   * P(collision) ≈ 1 - e^(-n²/(2N))
+   *
+   * Where:
+   * n = number of UUIDs generated
+   * N = total possible UUIDs = 2^122
+   * e = Euler's number (≈ 2.71828)
+   *
+   * For 50% collision probability, we solve:
+   * 0.5 = 1 - e^(-n²/(2×2^122))
+   *
+   * This gives n ≈ 2.7×10^18 UUIDs. At 1 million UUIDs per second, this would take:
+   *
+   * Time (seconds) = n / 1,000,000 = 2.7×10^12 seconds
+   * Time (years) = 2.7×10^12 / (60×60×24×365) ≈ 86,000 years.
+   *
+   * Thus, for all practical purposes, we can consider UUID collisions negligible
+   * in this context.
+   */
+  const id = crypto.randomUUID(); // generates a 122-bit random UUID
+
   const code = generateCode();
   const created_at = new Date().toISOString();
 
   const record = JSON.stringify({ id, code, created_at });
 
   await redis.set(`code:{${id}}`, record);
+
+  // The sync queue
+  const shard = Math.floor(Math.random() * 100) + 1;
+  await redis.lpush(`codes:sync_queue:{${shard}}`, id);
 
   res.status(201).json({ created_code: { id, code, created_at } });
 });
