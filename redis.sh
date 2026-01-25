@@ -7,7 +7,11 @@
 CMD=$1
 SYSTEM=$2 # set to -prod for redis6-server else it will be redis-server
 
-# Use the correct binary names for your machine
+
+CLUSTER_COUNT=30 # change this to set number of redis instances in cluster
+
+END_PORT=$((7000 + CLUSTER_COUNT - 1))
+
 
 if [ "$SYSTEM" == "-prod" ]; then
   REDIS_SVR="redis6-server"
@@ -21,7 +25,7 @@ if [ "$CMD" == "-setup" ]; then
   mkdir -p ../redis-cluster
   cd ../redis-cluster
 
-  for port in $(seq 7000 7029); do
+  for port in $(seq 7000 $END_PORT); do
     mkdir -p $port
     cat <<EOF > $port/redis.conf
 port $port
@@ -43,18 +47,18 @@ EOF
   sleep 5
 
   $REDIS_CLI --cluster create \
-  $(for port in $(seq 7000 7029); do echo -n "127.0.0.1:$port "; done) \
+  $(for port in $(seq 7000 $END_PORT); do echo -n "127.0.0.1:$port "; done) \
   --cluster-replicas 1 --cluster-yes
 
 elif [ "$CMD" == "-stop" ]; then
-  for port in $(seq 7000 7029); do
+  for port in $(seq 7000 $END_PORT); do
     $REDIS_CLI -p $port shutdown 2>/dev/null
   done
   sudo pkill -9 $REDIS_SVR 2>/dev/null
 
 elif [ "$CMD" == "-resume" ]; then
   # Adjusted to point to the correct relative path
-  for port in $(seq 7000 7029); do
+  for port in $(seq 7000 $END_PORT); do
     $REDIS_SVR ../redis-cluster/$port/redis.conf --daemonize yes --dir ../redis-cluster/$port
   done
 else
