@@ -8,7 +8,7 @@ CMD=$1
 SYSTEM=$2 # set to -prod for redis6-server else it will be redis-server
 
 
-CLUSTER_COUNT=30 # change this to set number of redis instances in cluster
+CLUSTER_COUNT=60 # change this to set number of redis instances in cluster
 
 END_PORT=$((7000 + CLUSTER_COUNT - 1))
 

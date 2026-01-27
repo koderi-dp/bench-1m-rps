@@ -88,6 +88,7 @@ app.route("post", "/code", async (req, res) => {
 
 // Reads a simple random code from the database and returns it
 app.route("get", "/code-v1", async (req, res) => {
+  // This is Big O(n) - Full Table Scan
   const result = await DB.query(
     `
       SELECT id, code, created_at
@@ -157,9 +158,9 @@ app.route("get", "/code-v3", async (req, res) => {
 });
 
 app.route("get", "/code-v4", async (req, res) => {
-  const randomId = crypto.randomInt(1, 700000 + 1); // kinda like cheating
+  const randomId = crypto.randomInt(1, 10_000_000 + 1); // kinda like cheating
 
-  // Fetch the record by ID (Index Lookup)
+  // Fetch the record by ID (Index Lookup). This is Big O(1)
   const result = await DB.query(
     `
       SELECT id, code, created_at
@@ -214,7 +215,7 @@ app.route("post", "/code-ultra-fast", async (req, res) => {
    * probability of at least one id duplicate.
    *
    *
-   * The math is based on the birthday problem approximation:
+   * The math is based on the birthday paradox problem approximation:
    * P(collision) ≈ 1 - e^(-n²/(2N))
    *
    * Where:
