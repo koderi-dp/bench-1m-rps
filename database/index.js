@@ -28,7 +28,9 @@ if (shouldConnect) {
       console.error("Error details:\n", err);
       process.exit(1);
     } else {
-      console.log("[postgres] connected successfully to " + keys.dbDatabase);
+      console.log(
+        "[postgres] connected successfully to " + keys.dbDatabase + ".",
+      );
     }
   });
 }
