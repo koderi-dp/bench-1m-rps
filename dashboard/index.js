@@ -2,18 +2,16 @@
 
 import blessed from "blessed";
 
-// Logger
-import { 
-  info as logInfo,
-  error as logError,
-  closeLogger 
-} from "./services/logger.service.js";
+// API Client
+import { initAPIClient, getAPIClient } from "./services/api.client.js";
 
-// Services
-import { PM2Service } from "./services/pm2.service.js";
-import { RedisService } from "./services/redis.service.js";
-import { SystemService } from "./services/system.service.js";
-import { BenchmarkService } from "./services/benchmark.service.js";
+// Service Adapters
+import { 
+  PM2ServiceAdapter, 
+  RedisServiceAdapter, 
+  SystemServiceAdapter, 
+  BenchmarkServiceAdapter 
+} from "./services/adapters.js";
 
 // UI - Layouts
 import { createScreen, createGrid, createTitle } from "./ui/layouts/main.layout.js";
@@ -43,7 +41,36 @@ import * as dashboardState from "./state/dashboard.state.js";
 // Config
 import { PERFORMANCE, TIMEOUTS } from "./config/constants.js";
 
+// ==================== SIMPLE LOGGING ====================
+
+const logInfo = (msg, data) => {
+  if (data && Object.keys(data).length > 0) {
+    console.log(`[Dashboard] ${msg}`, data);
+  } else {
+    console.log(`[Dashboard] ${msg}`);
+  }
+};
+
+const logError = (msg, data) => {
+  if (data && Object.keys(data).length > 0) {
+    console.error(`[Dashboard] ERROR: ${msg}`, data);
+  } else {
+    console.error(`[Dashboard] ERROR: ${msg}`);
+  }
+};
+
+const closeLogger = () => {
+  // No-op
+};
+
 // ==================== INITIALIZATION ====================
+
+// Initialize API client
+const apiServer = process.env.API_SERVER || "http://localhost:3100";
+const apiKey = process.env.API_KEY || null;
+const apiClient = initAPIClient(apiServer, apiKey);
+
+console.log(`[Dashboard] Connecting to API server at ${apiServer}`);
 
 // Create screen and grid
 const screen = createScreen();
@@ -52,11 +79,11 @@ const grid = createGrid(screen);
 // Create title
 const title = createTitle(grid);
 
-// Create services
-const pm2Service = new PM2Service();
-const redisService = new RedisService();
-const systemService = new SystemService();
-const benchmarkService = new BenchmarkService();
+// Create service adapters using API client
+const pm2Service = new PM2ServiceAdapter(apiClient);
+const redisService = new RedisServiceAdapter(apiClient);
+const systemService = new SystemServiceAdapter(apiClient);
+const benchmarkService = new BenchmarkServiceAdapter(apiClient);
 
 const services = {
   pm2: pm2Service,

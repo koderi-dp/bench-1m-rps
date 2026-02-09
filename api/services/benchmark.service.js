@@ -1,5 +1,8 @@
-import { BenchmarkHistory } from "../../benchmark-history.js";
-import { LIMITS } from "../config/constants.js";
+import { BenchmarkHistory } from "../utils/benchmark-history.js";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 /**
  * Benchmark Service
@@ -15,7 +18,7 @@ export class BenchmarkService {
    * @param {number} count - Number of results to retrieve
    * @returns {Promise<Array>} Benchmark results
    */
-  async getLatest(count = LIMITS.maxBenchmarkResults) {
+  async getLatest(count = 10) {
     return await this.history.getLatest(count);
   }
 
@@ -142,5 +145,64 @@ export class BenchmarkService {
       isError: false,
       message: ""
     };
+  }
+
+  /**
+   * Run benchmark remotely using bench.js
+   * @param {Object} options - Benchmark options
+   * @returns {Promise<Object>} Benchmark result
+   */
+  async runBenchmark(options) {
+    const {
+      framework,
+      host = "localhost",
+      endpoint = "/simple",
+      method = "GET",
+      duration = 20,
+      connections,
+      pipelining,
+      workers,
+      instances
+    } = options;
+
+    try {
+      let cmd = `node bench.js -f ${framework} -H ${host} -e ${endpoint} -m ${method} -d ${duration}`;
+
+      if (instances) {
+        cmd += ` -i ${instances}`;
+      }
+      if (connections) {
+        cmd += ` -c ${connections}`;
+      }
+      if (pipelining) {
+        cmd += ` -p ${pipelining}`;
+      }
+      if (workers) {
+        cmd += ` -w ${workers}`;
+      }
+
+      const { stdout, stderr } = await execAsync(cmd);
+      const output = stdout + stderr;
+
+      // Try to parse result
+      const result = this.parseBenchmarkOutput(output);
+      
+      if (result) {
+        await this.add(result);
+      }
+
+      return {
+        success: true,
+        result,
+        output: output.substring(0, 500) // First 500 chars
+      };
+    } catch (error) {
+      console.error("Benchmark execution error:", error);
+      return {
+        success: false,
+        error: error.message,
+        output: error.stdout?.substring(0, 500) || ""
+      };
+    }
   }
 }

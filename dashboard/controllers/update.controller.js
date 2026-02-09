@@ -1,12 +1,22 @@
-import { eventBus } from "../services/events.service.js";
-import { error as logError } from "../services/logger.service.js";
+// Simple logging function (events.service and logger may not be available)
+const logError = (msg) => {
+  console.error(`[ERROR] ${msg}`);
+};
+
+// No-op event bus for compatibility
+const eventBus = {
+  emitSystemStats: () => {},
+  emitPM2Stats: () => {},
+  emitRedisStats: () => {},
+  emitBenchmarkUpdate: () => {}
+};
 
 /**
  * UpdateController - Manages dashboard refresh cycle
- * Fetches data from services and emits events for widgets to subscribe to
+ * Fetches data from services and updates UI widgets
  * 
  * Implements dual-lane update system:
- * - Fast lane (1s): CPU, memory, PM2 CPU/mem, Redis ops/sec (volatile data)
+ * - Fast lane (1s): CPU, memory, PM2 CPU/mem (volatile data)
  * - Slow lane (5s): System info, uptime, load avg (stable data)
  */
 export class UpdateController {

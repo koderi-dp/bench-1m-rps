@@ -1,7 +1,11 @@
 import { readdir } from "fs/promises";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { execRedisCommand } from "../utils/exec.js";
 import { COLORS } from "../config/constants.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Redis Service
@@ -11,7 +15,8 @@ export class RedisService {
   constructor(execFn = execRedisCommand, redisClient = null) {
     this.exec = execFn;
     this.redis = redisClient;
-    this.clusterPath = join(process.cwd(), "../redis-cluster");
+    // Redis cluster is one level up from project root
+    this.clusterPath = join(__dirname, "../../redis-cluster");
     
     // Cache for master ports (refreshed every 5s)
     this.masterPortsCache = null;
