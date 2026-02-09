@@ -1,7 +1,5 @@
-// Simple logging function (events.service and logger may not be available)
-const logError = (msg) => {
-  console.error(`[ERROR] ${msg}`);
-};
+// Import logger service for file logging
+import { error as logError } from "../services/logger.service.js";
 
 // No-op event bus for compatibility
 const eventBus = {

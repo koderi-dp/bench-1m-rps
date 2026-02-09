@@ -1,23 +1,7 @@
 import { stripAnsi } from "../utils/format.js";
 import { formatNumber } from "../utils/format.js";
 import { execAsync } from "../utils/exec.js";
-
-// Simple logging functions
-const logInfo = (msg, data) => {
-  if (data && Object.keys(data).length > 0) {
-    console.log(`[INFO] ${msg}`, data);
-  } else {
-    console.log(`[INFO] ${msg}`);
-  }
-};
-
-const logError = (msg, data) => {
-  if (data && Object.keys(data).length > 0) {
-    console.error(`[ERROR] ${msg}`, data);
-  } else {
-    console.error(`[ERROR] ${msg}`);
-  }
-};
+import { info as logInfo, error as logError } from "../services/logger.service.js";
 
 /**
  * CommandController - Executes shell commands and parses output

@@ -41,27 +41,8 @@ import * as dashboardState from "./state/dashboard.state.js";
 // Config
 import { PERFORMANCE, TIMEOUTS } from "./config/constants.js";
 
-// ==================== SIMPLE LOGGING ====================
-
-const logInfo = (msg, data) => {
-  if (data && Object.keys(data).length > 0) {
-    console.log(`[Dashboard] ${msg}`, data);
-  } else {
-    console.log(`[Dashboard] ${msg}`);
-  }
-};
-
-const logError = (msg, data) => {
-  if (data && Object.keys(data).length > 0) {
-    console.error(`[Dashboard] ERROR: ${msg}`, data);
-  } else {
-    console.error(`[Dashboard] ERROR: ${msg}`);
-  }
-};
-
-const closeLogger = () => {
-  // No-op
-};
+// Logger service
+import { info as logInfo, error as logError, closeLogger } from "./services/logger.service.js";
 
 // ==================== INITIALIZATION ====================
 

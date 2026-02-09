@@ -27,35 +27,6 @@ const fileStream = createStream("dashboard.log", {
 });
 
 /**
- * Create Pino logger with dual output:
- * - File: JSON structured logs (production)
- * - Console: Pretty formatted (development, only if DASHBOARD_DEBUG is set)
- */
-const targets = [
-  {
-    target: "pino/file",
-    level: "info",
-    options: {
-      destination: 1, // stdout - but we'll use fileStream
-    },
-  },
-];
-
-// Add pretty printing in debug mode
-if (process.env.DASHBOARD_DEBUG === "1") {
-  targets.push({
-    target: "pino-pretty",
-    level: "debug",
-    options: {
-      destination: 2, // stderr
-      colorize: true,
-      translateTime: "HH:MM:ss",
-      ignore: "pid,hostname",
-    },
-  });
-}
-
-/**
  * Observer pattern - UI widgets can subscribe to log events
  */
 const observers = new Set();
@@ -85,6 +56,7 @@ function notifyObservers(level, message, context) {
 
 /**
  * Main dashboard logger instance
+ * Logs to file via rotating file stream
  */
 export const logger = pino(
   {
@@ -101,6 +73,11 @@ export const logger = pino(
   },
   fileStream
 );
+
+// Also log to console if debug mode is enabled
+if (process.env.DASHBOARD_DEBUG === "1") {
+  console.log("[Logger] Debug mode enabled - logs will also appear on console");
+}
 
 /**
  * Generic info level logging with context
