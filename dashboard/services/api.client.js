@@ -6,6 +6,7 @@
 import http from "http";
 import https from "https";
 import { WebSocket } from "ws";
+import { info as logInfo, error as logError, warn as logWarn, debug as logDebug } from "./logger.service.js";
 
 export class APIClient {
   constructor(baseURL = "http://localhost:3100", apiKey = null) {
@@ -292,97 +293,97 @@ export class APIClient {
       try {
         this.ws = new WebSocket(this.wsURL);
 
-        this.ws.addEventListener("open", () => {
-          console.log("[WS] Connected to API");
-          this.wsConnected = true;
-          if (this.wsCallbacks.onConnect) {
-            this.wsCallbacks.onConnect();
-          }
-          resolve();
-        });
+         this.ws.addEventListener("open", () => {
+           logInfo("Connected to API", { component: "api-client", event: "ws-connect" });
+           this.wsConnected = true;
+           if (this.wsCallbacks.onConnect) {
+             this.wsCallbacks.onConnect();
+           }
+           resolve();
+         });
 
-        this.ws.addEventListener("message", (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            this._handleWSMessage(message);
-          } catch (error) {
-            console.error("[WS] Error parsing message:", error);
-          }
-        });
+         this.ws.addEventListener("message", (event) => {
+           try {
+             const message = JSON.parse(event.data);
+             this._handleWSMessage(message);
+           } catch (error) {
+             logError("Error parsing message", { component: "api-client", event: "ws-message-parse", error: error.message });
+           }
+         });
 
-        this.ws.addEventListener("close", () => {
-          console.log("[WS] Disconnected from API");
-          this.wsConnected = false;
-          if (this.wsCallbacks.onDisconnect) {
-            this.wsCallbacks.onDisconnect();
-          }
-          // Attempt reconnect after delay
-          setTimeout(() => this.connectWebSocket().catch(() => {}), 5000);
-        });
+         this.ws.addEventListener("close", () => {
+           logInfo("Disconnected from API", { component: "api-client", event: "ws-disconnect" });
+           this.wsConnected = false;
+           if (this.wsCallbacks.onDisconnect) {
+             this.wsCallbacks.onDisconnect();
+           }
+           // Attempt reconnect after delay
+           setTimeout(() => this.connectWebSocket().catch(() => {}), 5000);
+         });
 
-        this.ws.addEventListener("error", (error) => {
-          console.error("[WS] Error:", error);
-          if (this.wsCallbacks.onError) {
-            this.wsCallbacks.onError(error);
-          }
-          reject(error);
-        });
+         this.ws.addEventListener("error", (error) => {
+           logError("WebSocket error", { component: "api-client", event: "ws-error", error: error.message || error });
+           if (this.wsCallbacks.onError) {
+             this.wsCallbacks.onError(error);
+           }
+           reject(error);
+         });
       } catch (error) {
         reject(error);
       }
     });
   }
 
-  /**
-   * Handle incoming WebSocket message
-   */
-  _handleWSMessage(message) {
-    switch (message.type) {
-      case "connected":
-        console.log(`[WS] Connection ID: ${message.clientId}`);
-        break;
+   /**
+    * Handle incoming WebSocket message
+    */
+   _handleWSMessage(message) {
+     switch (message.type) {
+       case "connected":
+         logDebug(`WebSocket connected with ID: ${message.clientId}`, { component: "api-client", stream: "connection" });
+         break;
 
-      case "subscribed":
-        console.log(`[WS] Subscribed to ${message.stream}`);
-        break;
+       case "subscribed":
+         logDebug(`Subscribed to stream: ${message.stream}`, { component: "api-client", action: "subscribe" });
+         break;
 
-      case "unsubscribed":
-        console.log(`[WS] Unsubscribed from ${message.stream}`);
-        this.wsSubscriptions.delete(message.stream);
-        break;
+       case "unsubscribed":
+         logDebug(`Unsubscribed from stream: ${message.stream}`, { component: "api-client", action: "unsubscribe" });
+         this.wsSubscriptions.delete(message.stream);
+         break;
 
-      case "metric":
-        if (this.wsCallbacks.onMetric) {
-          this.wsCallbacks.onMetric(message.stream, message.data, message.timestamp);
-        }
-        break;
+       case "metric":
+         if (this.wsCallbacks.onMetric) {
+           this.wsCallbacks.onMetric(message.stream, message.data, message.timestamp);
+         }
+         break;
 
-      case "error":
-        console.error(`[WS] Error: ${message.message}`);
-        break;
+       case "error":
+         logError(`Stream error: ${message.message}`, { component: "api-client", stream: message.stream });
+         break;
 
-      case "pong":
-        // Ignore pong responses
-        break;
+       case "pong":
+         // Ignore pong responses
+         break;
 
-      default:
-        console.log(`[WS] Unknown message type: ${message.type}`);
-    }
-  }
+       default:
+         logDebug(`Unknown message type: ${message.type}`, { component: "api-client", messageType: message.type });
+     }
+   }
 
-  /**
-   * Subscribe to metric stream
-   */
-  subscribeToStream(stream, interval = 1000) {
-    if (!this.wsConnected) {
-      console.error("[WS] Not connected");
-      return false;
-    }
+   /**
+    * Subscribe to metric stream
+    */
+   subscribeToStream(stream, interval = 1000) {
+     if (!this.wsConnected) {
+       logError("Cannot subscribe - WebSocket not connected", { component: "api-client", stream, action: "subscribe" });
+       return false;
+     }
 
-    if (this.wsSubscriptions.has(stream)) {
-      console.log(`[WS] Already subscribed to ${stream}`);
-      return true;
-    }
+     if (this.wsSubscriptions.has(stream)) {
+       logDebug(`Already subscribed to stream`, { component: "api-client", stream, action: "subscribe" });
+       return true;
+     }
 
     this.ws.send(
       JSON.stringify({
@@ -396,14 +397,14 @@ export class APIClient {
     return true;
   }
 
-  /**
-   * Unsubscribe from metric stream
-   */
-  unsubscribeFromStream(stream) {
-    if (!this.wsConnected) {
-      console.error("[WS] Not connected");
-      return false;
-    }
+   /**
+    * Unsubscribe from metric stream
+    */
+   unsubscribeFromStream(stream) {
+     if (!this.wsConnected) {
+       logError("Cannot unsubscribe - WebSocket not connected", { component: "api-client", stream, action: "unsubscribe" });
+       return false;
+     }
 
     this.ws.send(
       JSON.stringify({

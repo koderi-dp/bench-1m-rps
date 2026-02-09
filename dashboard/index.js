@@ -51,7 +51,7 @@ const apiServer = process.env.API_SERVER || "http://localhost:3100";
 const apiKey = process.env.API_KEY || null;
 const apiClient = initAPIClient(apiServer, apiKey);
 
-console.log(`[Dashboard] Connecting to API server at ${apiServer}`);
+logInfo(`Connecting to API server at ${apiServer}`, { component: "dashboard", action: "init" });
 
 // Create screen and grid
 const screen = createScreen();
