@@ -1,13 +1,6 @@
 // Import logger service for file logging
 import { error as logError } from "../services/logger.service.js";
-
-// No-op event bus for compatibility
-const eventBus = {
-  emitSystemStats: () => {},
-  emitPM2Stats: () => {},
-  emitRedisStats: () => {},
-  emitBenchmarkUpdate: () => {}
-};
+import { eventBus } from "../services/events.service.js";
 
 /**
  * UpdateController - Manages dashboard refresh cycle
