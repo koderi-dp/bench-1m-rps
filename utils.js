@@ -24,4 +24,41 @@ async function getMaxId() {
   return cachedMaxId;
 }
 
-export { generateCode, getMaxId };
+async function createCodeRecord() {
+  const code = generateCode();
+  
+  // Remove hash tags to distribute keys across all Redis Cluster masters
+  const isNew = await redis.sadd("codes:unique", code);
+
+  if (isNew === 0) {
+    return null;
+  }
+
+  const id = await redis.incr("codes:seq");
+  const created_at = new Date().toISOString();
+
+  // Execute commands separately to avoid CROSSSLOT errors in Redis Cluster
+  // Keys will distribute across different masters based on their individual hash slots
+  await redis.hset(`codes:${id}`, { id, code, created_at });
+  await redis.lpush("codes:sync_queue", id);
+
+  return { id, code, created_at };
+}
+
+async function getRandomCodeRecord() {
+  const maxId = await getMaxId();
+  if (maxId === 0) {
+    return null;
+  }
+
+  const randomId = crypto.randomInt(1, maxId + 1);
+  const result = await redis.hgetall(`codes:${randomId}`);
+
+  if (Object.keys(result).length === 0) {
+    return null;
+  }
+
+  return result;
+}
+
+export { generateCode, getMaxId, createCodeRecord, getRandomCodeRecord };

@@ -1,22 +1,58 @@
 {
-  "name": "server",
+  "name": "node-1m-rps",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "High-performance Node.js application targeting 1M requests per second",
+  "main": "dashboard.js",
   "type": "module",
+  "bin": {
+    "rps": "./rps.js"
+  },
   "scripts": {
+    "start": "node dashboard.js",
+    "dashboard": "node dashboard.js",
+    "quickstart": "node redis.js -setup -n 6 && node pm2.js -start -f express",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "seed": "node database/seed.js",
-    "migrate": "node database/migrate.js"
+    "redis:6:setup": "node redis.js -setup -n 6",
+    "redis:6:stop": "node redis.js -stop",
+    "redis:6:resume": "node redis.js -resume",
+    "redis:6:clean": "node redis.js -clean",
+    "pm2:start:cpeak": "node pm2.js -start -f cpeak",
+    "pm2:start:express": "node pm2.js -start -f express",
+    "pm2:start:fastify": "node pm2.js -start -f fastify",
+    "pm2:stop": "node pm2.js -stop",
+    "pm2:restart": "node pm2.js -restart",
+    "pm2:delete": "node pm2.js -delete",
+    "pm2:logs": "node pm2.js -logs",
+    "pm2:status": "node pm2.js -status",
+    "bench:simple": "autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3000/simple",
+    "bench:simple:express": "autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3001/simple",
+    "bench:simple:fastify": "autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3002/simple",
+    "bench:code:post": "autocannon -m POST --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3000/code",
+    "bench:code:get": "autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3000/code-fast",
+    "bench:code:post:express": "autocannon -m POST --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3001/code",
+    "bench:code:get:express": "autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 http://localhost:3001/code-fast"
   },
   "author": "",
   "license": "ISC",
-  "description": "",
+  "keywords": [
+    "nodejs",
+    "performance",
+    "redis",
+    "cluster",
+    "pm2",
+    "benchmark",
+    "1m-rps"
+  ],
   "dependencies": {
     "autocannon": "^8.0.0",
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
     "cpeak": "^2.5.0",
     "express": "^5.2.1",
     "fastify": "^5.7.1",
     "ioredis": "^5.9.2",
-    "pg": "^8.17.1"
+    "pino": "^10.3.0",
+    "pino-pretty": "^13.1.3",
+    "rotating-file-stream": "^3.2.8"
   }
 }
