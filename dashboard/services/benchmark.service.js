@@ -20,6 +20,15 @@ export class BenchmarkService {
   }
 
   /**
+   * Force reload benchmark history from disk
+   * Use this when file was modified by another process (e.g., bench.js)
+   * @returns {Promise<Object>} Reloaded history data
+   */
+  async reload() {
+    return await this.history.reload();
+  }
+
+  /**
    * Get all benchmark results
    * @returns {Promise<Array>} All benchmark results
    */

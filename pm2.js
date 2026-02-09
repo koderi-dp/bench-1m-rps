@@ -6,6 +6,14 @@ import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import readline from "readline";
+import {
+  isValidFramework,
+  getFrameworkNames,
+  getFrameworkPort,
+  getFramework,
+  getEnabledFrameworks,
+  CONFIG
+} from "./frameworks.config.js";
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -65,14 +73,16 @@ async function getPM2Processes() {
   }
 }
 
-// Detect running frameworks
+// Detect running frameworks (dynamic - works with any framework from config)
 async function detectFrameworks() {
   const processes = await getPM2Processes();
-  const frameworks = {
-    cpeak: processes.filter(p => p.name === "cpeak"),
-    express: processes.filter(p => p.name === "express"),
-    fastify: processes.filter(p => p.name === "fastify"),
-  };
+  const frameworks = {};
+  
+  // Build dynamic object with all enabled frameworks from config
+  for (const fw of getEnabledFrameworks()) {
+    frameworks[fw.name] = processes.filter(p => p.name === fw.name);
+  }
+  
   return frameworks;
 }
 
@@ -100,9 +110,9 @@ for (let i = 0; i < args.length; i++) {
     case "-f":
     case "--framework":
       framework = args[++i];
-      if (!["cpeak", "express", "fastify"].includes(framework)) {
+      if (!isValidFramework(framework)) {
         log(`Invalid framework: ${framework}`, "red");
-        log("Valid options: cpeak, express, fastify", "gray");
+        log(`Valid options: ${getFrameworkNames().join(", ")}`, "gray");
         process.exit(1);
       }
       break;
@@ -149,7 +159,7 @@ function showUsage() {
   log("  -monit      Open PM2 monitoring dashboard");
   
   log("\nOptions:", "yellow");
-  log("  -f, --framework <name>   Specify framework: cpeak, express, fastify");
+  log(`  -f, --framework <name>   Specify framework: ${getFrameworkNames().join(", ")}`);
   log("                           (default: all frameworks if omitted)");
   log("  -i, --instances <num>    Number of instances (default: 6)");
   log("                           ⚠️  Values >100 require confirmation");
@@ -157,18 +167,20 @@ function showUsage() {
   log("  -h, --help               Show this help message");
   
   log("\nExamples:", "yellow");
-  log("  node pm2.js -start -f express            # Start Express with 6 instances", "gray");
-  log("  node pm2.js -start -f cpeak -i 8         # Start Cpeak with 8 instances", "gray");
-  log("  node pm2.js -stop -f express             # Stop Express", "gray");
+  const frameworks = getFrameworkNames();
+  log(`  node pm2.js -start -f ${frameworks[1]}            # Start ${frameworks[1]} with 6 instances`, "gray");
+  log(`  node pm2.js -start -f ${frameworks[0]} -i 8         # Start ${frameworks[0]} with 8 instances`, "gray");
+  log(`  node pm2.js -stop -f ${frameworks[1]}             # Stop ${frameworks[1]}`, "gray");
   log("  node pm2.js -restart                     # Restart all frameworks", "gray");
   log("  node pm2.js -delete                      # Delete all processes", "gray");
   log("  node pm2.js -status                      # Show process status", "gray");
-  log("  node pm2.js -logs -f express             # View Express logs", "gray");
+  log(`  node pm2.js -logs -f ${frameworks[1]}             # View ${frameworks[1]} logs`, "gray");
   
   log("\nFrameworks:", "yellow");
-  log("  cpeak    - High-performance HTTP server (port 3000)", "gray");
-  log("  express  - Express.js server (port 3001)", "gray");
-  log("  fastify  - Fastify server (port 3002)", "gray");
+  for (const fw of getEnabledFrameworks()) {
+    const fwConfig = getFramework(fw.name);
+    log(`  ${fwConfig.name.padEnd(8)} - ${fwConfig.displayName} server (port ${fwConfig.port})`, "gray");
+  }
   
   log("\n");
 }
@@ -204,6 +216,13 @@ function runCommand(cmd, description) {
 async function startFramework(fw, inst) {
   const configFile = "ecosystem.config.cjs";
   
+  // Get framework config to determine runtime and script path
+  const fwConfig = getFramework(fw);
+  if (!fwConfig) {
+    log(`\n❌ Framework not found: ${fw}`, "red");
+    return false;
+  }
+  
   if (!existsSync(join(__dirname, configFile))) {
     log(`\n❌ Config file not found: ${configFile}`, "red");
     return false;
@@ -219,12 +238,42 @@ async function startFramework(fw, inst) {
     return false;
   }
   
-  const cmd = `F=${fw} I=${inst} pm2 start ${configFile} --update-env`;
-  const description = `Starting ${fw} with ${inst} instances (port ${getPort(fw)})`;
+  // Get all settings from framework config (100% dynamic!)
+  const interpreter = fwConfig.interpreterPath || fwConfig.interpreter || 'node';
+  const runtime = fwConfig.runtime || 'node';
+  const execMode = fwConfig.execMode || 'cluster';
+  const reusePort = fwConfig.reusePort || false;
+  const defaultInstances = fwConfig.instances || 1;
+  
+  // Use framework's default instances if not specified by user
+  const actualInstances = inst || defaultInstances;
+  
+  // Warn if trying to use multiple instances in fork mode WITHOUT reusePort
+  if (execMode === 'fork' && actualInstances > 1 && !reusePort) {
+    log(`\n⚠️  Note: ${fw} uses PM2 fork mode (single process)`, "yellow");
+    log(`   Starting 1 instance instead of ${actualInstances}.`, "gray");
+    log(`   Fork mode is configured in frameworks.config.js`, "gray");
+    log(`   Tip: Add reusePort: true if the runtime supports SO_REUSEPORT`, "gray");
+  }
+  
+  // Build PM2 command with all config passed via environment variables
+  const reusePortEnv = reusePort ? `REUSE_PORT=true` : `REUSE_PORT=false`;
+  const cmd = `F=${fw} I=${actualInstances} SCRIPT=./${fwConfig.file} INTERPRETER=${interpreter} EXEC_MODE=${execMode} ${reusePortEnv} pm2 start ${configFile} --update-env`;
+  
+  // Calculate actual instance count for display
+  const effectiveInstances = (execMode === 'fork' && !reusePort) ? 1 : actualInstances;
+  const modeText = execMode === 'fork' 
+    ? (reusePort ? 'fork + reusePort' : 'fork (single process)')
+    : 'cluster';
+  const description = `Starting ${fw} (${runtime}) with ${effectiveInstances} instances (port ${fwConfig.port})`;
   
   try {
     await runCommand(cmd, description);
     log(`\n✓ ${fw} started successfully`, "green");
+    log(`   Runtime: ${runtime}`, "gray");
+    log(`   Mode: ${modeText}`, "gray");
+    log(`   Instances: ${effectiveInstances}`, "gray");
+    if (reusePort) log(`   Port sharing: SO_REUSEPORT (Linux)`, "gray");
     return true;
   } catch (error) {
     log(`\n✗ Failed to start ${fw}`, "red");
@@ -347,12 +396,7 @@ async function openMonit() {
 
 // Get port for framework
 function getPort(fw) {
-  const ports = {
-    cpeak: 3000,
-    express: 3001,
-    fastify: 3002,
-  };
-  return ports[fw] || "unknown";
+  return getFrameworkPort(fw) || "unknown";
 }
 
 // Stop all frameworks
@@ -419,15 +463,21 @@ async function deleteAll() {
 }
 
 // Update ecosystem config with instance count
+// NOTE: This function is deprecated - ecosystem.config.cjs is now 100% dynamic
+// Keeping for backwards compatibility but not used anymore
 function updateEcosystemConfig(fw, inst) {
   const configPath = join(__dirname, "ecosystem.config.cjs");
+  const fwConfig = getFramework(fw);
+  const defaultFw = CONFIG.defaultFramework;
+  
   const content = `module.exports = {
   apps: [
     {
-      name: process.env.F || "cpeak",
-      script: \`./\${process.env.F || "cpeak"}.js\`,
+      name: process.env.F || "${defaultFw}",
+      script: process.env.SCRIPT || "./frameworks/nodejs/${defaultFw}.js",
+      interpreter: process.env.INTERPRETER || "node",
       instances: ${inst},
-      exec_mode: "cluster",
+      exec_mode: process.env.EXEC_MODE || "cluster",
       env: {
         NODE_ENV: "production",
         REDIS_CLUSTER: "true",
@@ -485,8 +535,9 @@ async function main() {
           await startFramework(framework, instances);
         } else {
           log("\n⚠️  Please specify a framework with -f", "yellow");
-          log("Example: node pm2.js -start -f express", "gray");
-          log("\nAvailable frameworks: cpeak, express, fastify\n", "gray");
+          const exampleFw = getFrameworkNames()[0];
+          log(`Example: node pm2.js -start -f ${exampleFw}`, "gray");
+          log(`\nAvailable frameworks: ${getFrameworkNames().join(", ")}\n`, "gray");
         }
         break;
         

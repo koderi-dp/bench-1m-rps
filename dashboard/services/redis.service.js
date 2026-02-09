@@ -12,6 +12,22 @@ export class RedisService {
     this.exec = execFn;
     this.redis = redisClient;
     this.clusterPath = join(process.cwd(), "../redis-cluster");
+    
+    // Cache for master ports (refreshed every 5s)
+    this.masterPortsCache = null;
+    this.lastMasterPortsCacheTime = 0;
+    this.CACHE_TTL = 5000; // 5 seconds
+    
+    // Callback for immediate updates after operations
+    this.updateCallback = null;
+  }
+
+  /**
+   * Set update callback for immediate dashboard refresh
+   * @param {Function} callback - Function to call after Redis operations
+   */
+  setUpdateCallback(callback) {
+    this.updateCallback = callback;
   }
 
   /**
@@ -34,13 +50,21 @@ export class RedisService {
   }
 
   /**
-   * Get master node ports from cluster
+   * Get master node ports from cluster (cached for 5 seconds)
    * @returns {Promise<Array<number>>} Array of master node ports
    */
   async getMasterPorts() {
+    // Return cached value if still valid
+    const now = Date.now();
+    if (this.masterPortsCache !== null && (now - this.lastMasterPortsCacheTime) < this.CACHE_TTL) {
+      return this.masterPortsCache;
+    }
+
     try {
       const ports = await this.detectNodes();
       if (ports.length === 0) {
+        this.masterPortsCache = [];
+        this.lastMasterPortsCacheTime = now;
         return [];
       }
 
@@ -49,6 +73,8 @@ export class RedisService {
       
       if (!stdout) {
         // Fallback: assume all nodes are masters if we can't query cluster
+        this.masterPortsCache = ports;
+        this.lastMasterPortsCacheTime = now;
         return ports;
       }
 
@@ -70,11 +96,24 @@ export class RedisService {
         }
       }
 
-      return masterPorts.sort((a, b) => a - b);
+      const sortedPorts = masterPorts.sort((a, b) => a - b);
+      this.masterPortsCache = sortedPorts;
+      this.lastMasterPortsCacheTime = now;
+      return sortedPorts;
     } catch (error) {
-      // Fallback: return all detected nodes
+      // On error, invalidate cache and try to detect nodes
+      this.masterPortsCache = null;
+      this.lastMasterPortsCacheTime = 0;
       return this.detectNodes();
     }
+  }
+
+  /**
+   * Invalidate master ports cache (useful after cluster changes)
+   */
+  invalidateCache() {
+    this.masterPortsCache = null;
+    this.lastMasterPortsCacheTime = 0;
   }
 
   /**
@@ -184,6 +223,14 @@ export class RedisService {
     try {
       const { stdout } = await this.exec(`node redis.js -setup -n ${nodes} -r ${replicas}`);
       
+      // Invalidate cache after cluster changes
+      this.invalidateCache();
+      
+      // Trigger immediate dashboard update
+      if (this.updateCallback) {
+        this.updateCallback();
+      }
+      
       if (stdout.includes("ready")) {
         return {
           success: true,
@@ -211,6 +258,14 @@ export class RedisService {
     try {
       const { stdout } = await this.exec("node redis.js -stop");
       
+      // Invalidate cache after cluster changes
+      this.invalidateCache();
+      
+      // Trigger immediate dashboard update
+      if (this.updateCallback) {
+        this.updateCallback();
+      }
+      
       const offlineCount = (stdout.match(/offline/gi) || []).length;
       return {
         success: true,
@@ -232,6 +287,14 @@ export class RedisService {
     try {
       const { stdout } = await this.exec("node redis.js -resume");
       
+      // Invalidate cache after cluster changes
+      this.invalidateCache();
+      
+      // Trigger immediate dashboard update
+      if (this.updateCallback) {
+        this.updateCallback();
+      }
+      
       const onlineCount = (stdout.match(/online/gi) || []).length;
       return {
         success: true,
@@ -252,6 +315,15 @@ export class RedisService {
   async clean() {
     try {
       await this.exec("node redis.js -clean");
+      
+      // Invalidate cache after cluster changes
+      this.invalidateCache();
+      
+      // Trigger immediate dashboard update
+      if (this.updateCallback) {
+        this.updateCallback();
+      }
+      
       return {
         success: true,
         message: "Redis data cleaned"

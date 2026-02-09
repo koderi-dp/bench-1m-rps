@@ -1,6 +1,7 @@
 import blessed from "blessed";
 import contrib from "blessed-contrib";
 import { formatNumber } from "../../utils/format.js";
+import { getFrameworkNames } from "../../../frameworks.config.js";
 
 /**
  * Create the benchmark history overlay (hidden by default)
@@ -29,13 +30,16 @@ export function createBenchmarkOverlay(screen, benchmarkService) {
     hidden: true,
   });
 
-  // Bar Chart (top 25%)
-  const barChart = blessed.box({
+  // Summary Table (top 30%)
+  const summaryTable = contrib.table({
     parent: overlay,
     top: 0,
     left: 1,
     width: "100%-2",
-    height: "25%-1",
+    height: "30%-1",
+    keys: false,
+    vi: false,
+    interactive: false,
     border: {
       type: "line",
     },
@@ -43,19 +47,23 @@ export function createBenchmarkOverlay(screen, benchmarkService) {
       border: {
         fg: "green",
       },
+      header: {
+        fg: "yellow",
+        bold: true,
+      },
     },
-    label: " Latest Performance by Endpoint ",
-    content: "",
-    tags: true,
+    label: " Latest Performance by Endpoint (Req/s) ",
+    columnSpacing: 3,
+    columnWidth: [18, 10, 12, 12, 12],
   });
 
-  // History Table (middle 50%)
+  // History Table (middle 40%)
   const historyTable = contrib.table({
     parent: overlay,
-    top: "25%",
+    top: "30%",
     left: 1,
     width: "100%-2",
-    height: "50%-1",
+    height: "40%-1",
     keys: true,
     vi: true,
     interactive: true,
@@ -78,13 +86,13 @@ export function createBenchmarkOverlay(screen, benchmarkService) {
     columnWidth: [10, 10, 11, 9, 9, 9, 11, 15, 10],
   });
 
-  // Details Panel (bottom 25%)
+  // Details Panel (bottom 30%)
   const detailsPanel = blessed.box({
     parent: overlay,
-    top: "75%",
+    top: "70%",
     left: 1,
     width: "100%-2",
-    height: "25%-1",
+    height: "30%-1",
     border: {
       type: "line",
     },
@@ -101,94 +109,65 @@ export function createBenchmarkOverlay(screen, benchmarkService) {
 
   return {
     overlay,
-    barChart,
+    summaryTable,
     historyTable,
     detailsPanel,
   };
 }
 
 /**
- * Generate bar chart content from benchmark results
+ * Format summary table data - shows latest performance by endpoint across frameworks
  * @param {Object} latestByFramework - Map of framework:endpoint:method -> result
- * @returns {string} Formatted bar chart content with tags
+ * @returns {Object} { headers, data }
  */
-function generateBarChartContent(latestByFramework) {
-  const frameworks = ["cpeak", "express", "fastify"];
-  const colors = { cpeak: "green", express: "blue", fastify: "magenta" };
+function formatSummaryTableData(latestByFramework) {
+  const frameworkList = getFrameworkNames();
+  const headers = ["Endpoint", "Method", ...frameworkList];
+  
+  if (!latestByFramework || Object.keys(latestByFramework).length === 0) {
+    return {
+      headers,
+      data: [["No data", "—", ...frameworkList.map(() => "—")]]
+    };
+  }
 
-  // Group results by framework
-  const grouped = {};
+  // Group by endpoint+method
+  const endpointMap = new Map();
+  
   for (const key in latestByFramework) {
     const result = latestByFramework[key];
-    const framework = result.framework;
-    if (!grouped[framework]) {
-      grouped[framework] = [];
+    const endpoint = result.endpoint || '/';
+    const method = result.method || 'GET';
+    const framework = result.framework || 'unknown';
+    const endpointKey = `${endpoint}:${method}`;
+    
+    if (!endpointMap.has(endpointKey)) {
+      endpointMap.set(endpointKey, {
+        endpoint,
+        method,
+        frameworks: {}
+      });
     }
-    grouped[framework].push(result);
+    
+    endpointMap.get(endpointKey).frameworks[framework] = result.reqPerSec;
   }
+  
+  const data = Array.from(endpointMap.values()).map(item => {
+    const row = [
+      item.endpoint,
+      item.method,
+    ];
+    
+    // Add framework data in order
+    frameworkList.forEach(framework => {
+      const value = item.frameworks[framework];
+      row.push(value ? formatNumber(value) : "—");
+    });
+    
+    return row;
+  });
 
-  // Sort results within each framework by reqPerSec descending
-  for (const framework in grouped) {
-    grouped[framework].sort((a, b) => b.reqPerSec - a.reqPerSec);
-  }
-
-  // Collect all unique endpoints
-  const allEndpoints = new Set();
-  for (const framework of frameworks) {
-    const results = grouped[framework] || [];
-    for (const result of results) {
-      allEndpoints.add(`${result.method} ${result.endpoint}`);
-    }
-  }
-  const endpoints = Array.from(allEndpoints).sort();
-
-  if (endpoints.length === 0) {
-    return "\n  {gray-fg}No benchmark data available{/gray-fg}\n";
-  }
-
-  // Header row with framework names
-  const colWidth = 20;
-  const labelWidth = 18;
-  let content = "\n  " + "Endpoint".padEnd(labelWidth);
-  content += "{green-fg}" + "CPEAK".padEnd(colWidth) + "{/green-fg}";
-  content += "{blue-fg}" + "EXPRESS".padEnd(colWidth) + "{/blue-fg}";
-  content += "{magenta-fg}" + "FASTIFY".padEnd(colWidth) + "{/magenta-fg}";
-  content += "\n  " + "─".repeat(labelWidth + colWidth * 3) + "\n";
-
-  // Find max value for scaling
-  const allValues = [];
-  for (const framework of frameworks) {
-    const results = grouped[framework] || [];
-    for (const result of results) {
-      allValues.push(result.reqPerSec);
-    }
-  }
-  const maxValue = Math.max(...allValues, 1);
-
-  // Display each endpoint as a row
-  for (const endpoint of endpoints) {
-    let row = "  " + endpoint.padEnd(labelWidth);
-
-    for (const framework of frameworks) {
-      const results = grouped[framework] || [];
-      const result = results.find((r) => `${r.method} ${r.endpoint}` === endpoint);
-      const color = colors[framework];
-
-      if (result) {
-        const value = result.reqPerSec;
-        const barLength = Math.max(1, Math.floor((value / maxValue) * 8));
-        const bar = "█".repeat(barLength);
-        const valueStr = formatNumber(value);
-        row += `{${color}-fg}${bar.padEnd(9)}${valueStr.padEnd(11)}{/${color}-fg}`;
-      } else {
-        row += `{gray-fg}${"─".padEnd(colWidth)}{/gray-fg}`;
-      }
-    }
-
-    content += row + "\n";
-  }
-
-  return content;
+  return { headers, data };
 }
 
 /**
@@ -205,15 +184,15 @@ function formatHistoryTableData(allResults) {
       hour12: false,
     });
     return [
-      time,
-      r.framework,
-      formatNumber(r.reqPerSec),
-      `${r.avgLatency}ms`,
-      `${r.p50Latency}ms`,
-      `${r.p90Latency}ms`,
-      `${r.p99Latency}ms`,
-      formatNumber(r.totalReqs),
-      r.endpoint,
+      time || "N/A",
+      r.framework || "N/A",
+      formatNumber(r.reqPerSec) || "0",
+      r.avgLatency != null ? `${r.avgLatency}ms` : "N/A",
+      r.p50Latency != null ? `${r.p50Latency}ms` : "N/A",
+      r.p90Latency != null ? `${r.p90Latency}ms` : "N/A",
+      r.p99Latency != null ? `${r.p99Latency}ms` : "N/A",
+      formatNumber(r.totalReqs) || "0",
+      r.endpoint || "/",
     ];
   });
 
@@ -228,36 +207,36 @@ function formatHistoryTableData(allResults) {
 function formatDetailsContent(result) {
   if (!result) return "";
 
-  const hasErrors = result.errors > 0 || result.timeouts > 0 || result.non2xx > 0;
+  const hasErrors = (result.errors || 0) > 0 || (result.timeouts || 0) > 0 || (result.non2xx || 0) > 0;
   const errorColor = hasErrors ? "yellow" : "green";
 
   return `
-  {cyan-fg}Framework:{/cyan-fg} ${result.framework}  |  {cyan-fg}Endpoint:{/cyan-fg} ${result.method} ${result.endpoint}
+  {cyan-fg}Framework:{/cyan-fg} ${result.framework || "N/A"}  |  {cyan-fg}Endpoint:{/cyan-fg} ${result.method || "GET"} ${result.endpoint || "/"}
   {cyan-fg}Timestamp:{/cyan-fg} ${new Date(result.timestamp).toLocaleString()}
   ─────────────────────────────────────────────────────────────────────────────
   {yellow-fg}Configuration:{/yellow-fg}
-    Duration: ${result.duration}s  |  Connections: ${result.connections}  |  Workers: ${result.workers}  |  Pipelining: ${result.pipelining}
+    Duration: ${result.duration || "N/A"}s  |  Connections: ${result.connections || "N/A"}  |  Workers: ${result.workers || "N/A"}  |  Pipelining: ${result.pipelining || "N/A"}
   ─────────────────────────────────────────────────────────────────────────────
   {yellow-fg}Latency:{/yellow-fg}
-    Average: ${result.avgLatency} ms  |  P50: ${result.p50Latency} ms  |  P90: ${result.p90Latency} ms  |  P99: ${result.p99Latency} ms
+    Average: ${result.avgLatency != null ? result.avgLatency : "N/A"} ms  |  P50: ${result.p50Latency != null ? result.p50Latency : "N/A"} ms  |  P90: ${result.p90Latency != null ? result.p90Latency : "N/A"} ms  |  P99: ${result.p99Latency != null ? result.p99Latency : "N/A"} ms
   ─────────────────────────────────────────────────────────────────────────────
   {yellow-fg}Requests:{/yellow-fg}
-    Total: ${formatNumber(result.totalReqs)}  |  Per Second: ${formatNumber(result.reqPerSec)}
+    Total: ${formatNumber(result.totalReqs) || "0"}  |  Per Second: ${formatNumber(result.reqPerSec) || "0"}
   ─────────────────────────────────────────────────────────────────────────────
   {${errorColor}-fg}Status:{/${errorColor}-fg}
-    Errors: ${result.errors}  |  Timeouts: ${result.timeouts}  |  Non-2xx: ${result.non2xx}
+    Errors: ${result.errors || 0}  |  Timeouts: ${result.timeouts || 0}  |  Non-2xx: ${result.non2xx || 0}
     `;
 }
 
 /**
  * Show the benchmark details overlay with data
- * @param {Object} components - { overlay, barChart, historyTable, detailsPanel }
+ * @param {Object} components - { overlay, summaryTable, historyTable, detailsPanel }
  * @param {blessed.Screen} screen - The blessed screen instance
  * @param {BenchmarkService} benchmarkService - The benchmark service instance
  * @param {Function} onClear - Callback when clear is requested
  */
 export async function showBenchmarkDetails(components, screen, benchmarkService, onClear) {
-  const { overlay, barChart, historyTable, detailsPanel } = components;
+  const { overlay, summaryTable, historyTable, detailsPanel } = components;
 
   // Get all benchmark history
   const allResults = await benchmarkService.getAll();
@@ -266,10 +245,15 @@ export async function showBenchmarkDetails(components, screen, benchmarkService,
     return null; // Signal to caller that there's no data
   }
 
-  // Update bar chart
+  // Show overlay first
+  overlay.show();
+  historyTable.focus();
+  screen.render();
+
+  // Update summary table
   const latestByFramework = await benchmarkService.getLatestByFramework();
-  const barContent = generateBarChartContent(latestByFramework);
-  barChart.setContent(barContent);
+  const summaryData = formatSummaryTableData(latestByFramework);
+  summaryTable.setData(summaryData);
 
   // Update history table
   const { headers, data } = formatHistoryTableData(allResults);
@@ -336,10 +320,6 @@ export async function showBenchmarkDetails(components, screen, benchmarkService,
     confirmBox.focus();
     screen.render();
   });
-
-  overlay.show();
-  historyTable.focus();
-  screen.render();
 
   return true; // Success
 }

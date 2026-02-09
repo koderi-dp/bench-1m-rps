@@ -2,10 +2,13 @@
  * Dashboard Configuration Constants
  */
 
+import { getColorMapping } from "../../frameworks.config.js";
+
+// Framework colors are now dynamically loaded from frameworks.config.js
+const frameworkColors = getColorMapping();
+
 export const COLORS = {
-  cpeak: "green",
-  express: "blue",
-  fastify: "magenta",
+  ...frameworkColors,
   
   success: "green",
   warning: "yellow",
@@ -35,8 +38,16 @@ export const TIMEOUTS = {
   command: 30000,        // 30 seconds for shell commands
   pm2Stats: 5000,        // 5 seconds for PM2 jlist
   redisStats: 2000,      // 2 seconds per Redis node
-  updateInterval: 2000,  // 2 seconds between dashboard updates
+  updateInterval: 2000,  // 2 seconds between dashboard updates (legacy mode)
+  fastInterval: 1000,    // 1 second for volatile data (fast lane)
+  slowInterval: 5000,    // 5 seconds for stable data (slow lane)
   refreshDelay: 1000     // 1 second delay after command execution
+};
+
+export const PERFORMANCE = {
+  useVariableIntervals: true,  // Enable fast/slow lane system (Phase 2 optimization)
+  redisCacheTTL: 5000,         // 5 seconds for Redis master port cache
+  systemCacheEnabled: true     // Enable system data caching
 };
 
 export const BUFFERS = {

@@ -4,6 +4,13 @@ import { spawn, execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { BenchmarkHistory } from "./benchmark-history.js";
+import { 
+  isValidFramework, 
+  getFrameworkNames, 
+  getFrameworkPort,
+  getEnabledFrameworks,
+  CONFIG 
+} from "./frameworks.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,12 +33,17 @@ function log(msg, color = "reset") {
 // Parse arguments
 const args = process.argv.slice(2);
 let framework = null;
-let endpoint = "/simple";
-let method = "GET";
+let host = "localhost";  // Target host (use IP for remote benchmarking)
+let endpoint = CONFIG.defaultEndpoint;
+let method = CONFIG.defaultMethod;
 let duration = 20;
-let connections = 20;
-let pipelining = 2;
-let workers = 6;
+let connections = null;  // null = auto-scale based on instance count
+let pipelining = null;   // null = auto-scale
+let workers = null;       // null = auto-scale
+let instanceHint = null;  // Manual instance count hint for auto-scaling (required for remote)
+let userSetConnections = false;
+let userSetPipelining = false;
+let userSetWorkers = false;
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -39,9 +51,21 @@ for (let i = 0; i < args.length; i++) {
     case "-f":
     case "--framework":
       framework = args[++i];
-      if (!["cpeak", "express", "fastify"].includes(framework)) {
+      if (!isValidFramework(framework)) {
         log(`Invalid framework: ${framework}`, "red");
-        log("Valid options: cpeak, express, fastify", "gray");
+        log(`Valid options: ${getFrameworkNames().join(", ")}`, "gray");
+        process.exit(1);
+      }
+      break;
+    case "-H":
+    case "--host":
+      host = args[++i];
+      break;
+    case "-i":
+    case "--instances":
+      instanceHint = parseInt(args[++i]);
+      if (isNaN(instanceHint) || instanceHint < 1) {
+        log("Invalid instance count. Must be >= 1", "red");
         process.exit(1);
       }
       break;
@@ -67,6 +91,7 @@ for (let i = 0; i < args.length; i++) {
     case "-c":
     case "--connections":
       connections = parseInt(args[++i]);
+      userSetConnections = true;
       if (isNaN(connections) || connections < 1) {
         log("Invalid connections. Must be >= 1", "red");
         process.exit(1);
@@ -75,10 +100,12 @@ for (let i = 0; i < args.length; i++) {
     case "-w":
     case "--workers":
       workers = parseInt(args[++i]);
+      userSetWorkers = true;
       break;
     case "-p":
     case "--pipelining":
       pipelining = parseInt(args[++i]);
+      userSetPipelining = true;
       break;
     case "-h":
     case "--help":
@@ -99,44 +126,49 @@ function showUsage() {
   log("\nUsage: node bench.js -f <framework> [options]", "bold");
   
   log("\nRequired:", "yellow");
-  log("  -f, --framework <name>   Framework to benchmark: cpeak, express, fastify");
+  log(`  -f, --framework <name>   Framework to benchmark: ${getFrameworkNames().join(", ")}`);
   
   log("\nOptions:", "yellow");
-  log("  -e, --endpoint <path>    Endpoint to test (default: /simple)");
-  log("  -m, --method <method>    HTTP method (default: GET)");
+  log("  -H, --host <ip>          Target host (default: localhost)");
+  log("                           Use this for remote benchmarking (e.g., 192.168.1.100)");
+  log(`  -e, --endpoint <path>    Endpoint to test (default: ${CONFIG.defaultEndpoint})`);
+  log(`  -m, --method <method>    HTTP method (default: ${CONFIG.defaultMethod})`);
   log("  -d, --duration <sec>     Test duration in seconds (default: 20)");
-  log("  -c, --connections <num>  Number of connections (default: 20)");
-  log("  -w, --workers <num>      Number of workers (default: 6)");
-  log("  -p, --pipelining <num>   Pipelining factor (default: 2)");
+  log("  -i, --instances <num>    Number of instances (for auto-scaling)");
+  log("                           Required for remote benchmarking, optional for local");
+  log("  -c, --connections <num>  Number of connections (default: auto-scaled)");
+  log("  -w, --workers <num>      Number of workers (default: auto-scaled)");
+  log("  -p, --pipelining <num>   Pipelining factor (default: auto-scaled)");
   log("  -h, --help               Show this help message");
   
   log("\nFeatures:", "yellow");
-  log("  ✓ Auto-validates PM2 is running the target framework", "gray");
+  log("  ✓ Auto-scales connections/workers/pipelining based on instance count", "gray");
+  log("  ✓ Local mode: auto-detects PM2 running instances", "gray");
+  log("  ✓ Remote mode: benchmarks another machine (IP or hostname)", "gray");
   log("  ✓ Saves results to benchmark history (.bench-history.json)", "gray");
-  log("  ✓ Shows helpful suggestions if wrong framework is running", "gray");
+  log("  ✓ Shows helpful suggestions if server is unreachable", "gray");
   
-  log("\nExamples:", "yellow");
-  log("  node bench.js -f express                      # Quick test", "gray");
-  log("  node bench.js -f cpeak -e /simple -d 30       # 30 second test", "gray");
-  log("  node bench.js -f express -e /code -m POST     # POST request", "gray");
-  log("  node bench.js -f fastify -c 100 -d 60         # Heavy load test", "gray");
+  log("\nLocal Benchmarking (same machine):", "yellow");
+  log(`  node bench.js -f ${getFrameworkNames()[0]}                      # Quick test`, "gray");
+  log(`  node bench.js -f ${getFrameworkNames()[0]} -e /code -m POST     # POST request`, "gray");
+  log(`  node bench.js -f ${getFrameworkNames()[1]} -d 30 -c 200         # Custom load`, "gray");
+  
+  log("\nRemote Benchmarking (different machine):", "yellow");
+  log(`  node bench.js -f ${getFrameworkNames()[0]} -H 192.168.1.100 -i 10   # 10 instances`, "gray");
+  log(`  node bench.js -f ${getFrameworkNames()[0]} -H prod.example.com -i 20 # Production`, "gray");
+  log(`  node bench.js -f ${getFrameworkNames()[1]} -H 10.0.0.5 -i 5 -e /code # Custom endpoint`, "gray");
   
   log("\nFramework Ports:", "yellow");
-  log("  cpeak    - http://localhost:3000", "gray");
-  log("  express  - http://localhost:3001", "gray");
-  log("  fastify  - http://localhost:3002", "gray");
+  for (const fw of getEnabledFrameworks()) {
+    log(`  ${fw.name.padEnd(8)} - http://localhost:${fw.port}`, "gray");
+  }
   
   log("\n");
 }
 
 // Get port for framework
 function getPort(fw) {
-  const ports = {
-    cpeak: 3000,
-    express: 3001,
-    fastify: 3002,
-  };
-  return ports[fw];
+  return getFrameworkPort(fw);
 }
 
 // Format number with commas
@@ -191,6 +223,11 @@ function checkPM2Framework(targetFramework) {
   }
 }
 
+// Determine if running in remote mode (benchmarking a different machine)
+function isRemoteHost() {
+  return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+}
+
 // Run benchmark
 async function runBenchmark() {
   if (!framework) {
@@ -200,25 +237,68 @@ async function runBenchmark() {
     process.exit(1);
   }
   
-  // Check if PM2 has the correct framework running
-  log("\n🔍 Checking PM2 status...", "cyan");
-  const pm2Check = checkPM2Framework(framework);
+  const remote = isRemoteHost();
+  let instanceCount = 1;
   
-  if (!pm2Check.running) {
-    log(`\n❌ ${pm2Check.message}`, "red");
-    if (pm2Check.currentFramework) {
-      log(`\n⚠️  ${pm2Check.suggestion}`, "yellow");
-    } else {
-      log(`\n💡 ${pm2Check.suggestion}`, "yellow");
+  if (remote) {
+    // Remote mode: skip PM2 check, use instance hint for scaling
+    log(`\n🌐 Remote mode: benchmarking ${host}`, "cyan");
+    
+    if (instanceHint) {
+      instanceCount = instanceHint;
+      log(`✓ Using ${instanceCount} instances for auto-scaling (from -i flag)`, "green");
+    } else if (!userSetConnections && !userSetWorkers && !userSetPipelining) {
+      log(`⚠️  No instance count provided. Using defaults for 1 instance.`, "yellow");
+      log(`   Tip: use -i <count> to auto-scale for the remote server's instance count`, "gray");
+      log(`   Example: node bench.js -f ${framework} -H ${host} -i 20`, "gray");
     }
-    log("\nBenchmark cancelled.\n", "gray");
-    process.exit(1);
+  } else {
+    // Local mode: check PM2 for running instances
+    log("\n🔍 Checking PM2 status...", "cyan");
+    const pm2Check = checkPM2Framework(framework);
+    
+    if (!pm2Check.running) {
+      log(`\n❌ ${pm2Check.message}`, "red");
+      if (pm2Check.currentFramework) {
+        log(`\n⚠️  ${pm2Check.suggestion}`, "yellow");
+      } else {
+        log(`\n💡 ${pm2Check.suggestion}`, "yellow");
+      }
+      log("\nBenchmark cancelled.\n", "gray");
+      process.exit(1);
+    }
+    
+    log(`✓ ${pm2Check.message}`, "green");
+    instanceCount = pm2Check.instances || 1;
+    
+    // Allow -i to override PM2 detected count (e.g., if PM2 is behind a load balancer)
+    if (instanceHint) {
+      instanceCount = instanceHint;
+      log(`  (overridden to ${instanceCount} instances via -i flag)`, "gray");
+    }
   }
   
-  log(`✓ ${pm2Check.message}`, "green");
+  // Auto-scale parameters based on instance count
+  const scaled = {
+    connections: Math.max(100, instanceCount * 50),
+    workers: Math.max(4, Math.min(Math.ceil(instanceCount / 2), 16)),
+    pipelining: instanceCount >= 10 ? 10 : instanceCount >= 4 ? 6 : 2,
+  };
+  
+  // Apply auto-scaled values only if user didn't explicitly set them
+  if (!userSetConnections) connections = scaled.connections;
+  if (!userSetWorkers) workers = scaled.workers;
+  if (!userSetPipelining) pipelining = scaled.pipelining;
+  
+  if (!userSetConnections || !userSetWorkers || !userSetPipelining) {
+    log(`\n📊 Auto-scaled for ${instanceCount} instances:`, "cyan");
+    if (!userSetConnections) log(`   Connections: ${connections} (${instanceCount} instances x 50)`, "gray");
+    if (!userSetWorkers) log(`   Workers: ${workers}`, "gray");
+    if (!userSetPipelining) log(`   Pipelining: ${pipelining}`, "gray");
+  }
   
   const port = getPort(framework);
-  const url = `http://localhost:${port}${endpoint}`;
+  const url = `http://${host}:${port}${endpoint}`;
   
   log("\n╔═══════════════════════════════════════════════════════════╗", "cyan");
   log("║                  Running Benchmark                        ║", "cyan");
@@ -242,8 +322,15 @@ async function runBenchmark() {
     "-d", duration.toString(),
     "-p", pipelining.toString(),
     "-w", workers.toString(),
-    url,
   ];
+  
+  // Add body for POST requests
+  if (method === "POST") {
+    cmdArgs.push("-H", "Content-Type=application/json");
+    cmdArgs.push("-b", JSON.stringify({ name: "benchmark" }));
+  }
+  
+  cmdArgs.push(url);
   
   log("Running...\n", "yellow");
   

@@ -131,6 +131,96 @@ pm2 logs
 
 ---
 
+### Adding New Runtimes (C#, Go, Rust, etc.)
+
+The system is **100% runtime-agnostic**. To add a new runtime (C#, Go, Rust, Python, Java, etc.), simply:
+
+1. **Create your server implementation** in `frameworks/<runtime>/`
+   - Implement the 3 endpoints: `GET /simple`, `POST /code`, `GET /code-fast`
+   - Use the same Redis operations as existing implementations
+
+2. **Add configuration** to `frameworks.config.js`:
+
+```javascript
+csharp: {
+  name: "csharp",
+  displayName: "C# (.NET)",
+  port: 3004,
+  color: "cyan",
+  file: "frameworks/csharp/Server.dll",  // or path to executable
+  enabled: true,
+  runtime: "dotnet",
+  interpreter: "dotnet",                   // Command to run your app
+  execMode: "fork",                        // "cluster" (Node.js) or "fork" (most others)
+  instances: 1,                            // Instances in cluster mode
+},
+```
+
+**That's it!** PM2, benchmarking, and the dashboard will work automatically. No need to modify:
+- ❌ `ecosystem.config.cjs` (100% dynamic)
+- ❌ `pm2.js` (reads from config)
+- ❌ `bench.js` (uses port mapping)
+- ❌ `dashboard/` (uses `getEnabledFrameworks()`)
+
+**Example: Adding Go**
+```javascript
+go: {
+  name: "go",
+  displayName: "Go (Native)",
+  port: 3005,
+  color: "cyan",
+  file: "frameworks/go/server",    // Compiled binary
+  enabled: true,
+  runtime: "go",
+  interpreter: "none",              // No interpreter for compiled binaries
+  execMode: "fork",
+  instances: 1,
+},
+```
+
+**Example: Adding Rust**
+```javascript
+rust: {
+  name: "rust",
+  displayName: "Rust (Actix)",
+  port: 3006,
+  color: "red",
+  file: "frameworks/rust/target/release/server",  // Compiled binary
+  enabled: true,
+  runtime: "rust",
+  interpreter: "none",
+  execMode: "fork",
+  instances: 1,
+},
+```
+
+**Key Properties:**
+- `execMode`: Use `"cluster"` for Node.js-style shared sockets, `"fork"` for everything else
+- `interpreter`: Command to run your app (`node`, `bun`, `dotnet`, `python`, `java`, etc.)
+  - Use `"none"` for compiled binaries (Go, Rust, C++)
+- `interpreterPath`: (Optional) Full path if interpreter isn't in PATH
+- `instances`: Default instance count (only applies in cluster mode)
+
+**Running Your New Runtime:**
+```bash
+# Development
+bun frameworks/<runtime>/server.ts   # or whatever command
+
+# PM2 (production)
+node pm2.js -start -f <name> -i <instances>
+node pm2.js -status
+pm2 logs <name>
+
+# Benchmarking
+node bench.js -f <name> -e /simple -d 10
+node bench.js -f <name> -e /code -m POST -d 10
+
+# Or use the interactive menu
+npm start
+```
+
+---
+
 ### Benchmark
 
 Example autocannon run:

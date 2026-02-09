@@ -40,6 +40,9 @@ import { CommandController } from "./controllers/command.controller.js";
 // State
 import * as dashboardState from "./state/dashboard.state.js";
 
+// Config
+import { PERFORMANCE, TIMEOUTS } from "./config/constants.js";
+
 // ==================== INITIALIZATION ====================
 
 // Create screen and grid
@@ -103,10 +106,13 @@ const footer = blessed.text({
 
 const updateController = new UpdateController(services, chartDataManager, screen);
 
+// Set up immediate update callback for Redis operations
+redisService.setUpdateCallback(() => updateController.updateRedis());
+
 const focusablePanels = [pm2List, redisList, benchmarkTable, activityLog];
 const navigationController = new NavigationController(screen, focusablePanels);
 
-const commandController = new CommandController(updateController);
+const commandController = new CommandController(updateController, redisService, benchmarkService);
 
 // ==================== OVERLAYS ====================
 
@@ -298,8 +304,62 @@ logInfo("Dashboard started - Left/Right switch panels, 'm' opens menu", {
 // Initial render
 screen.render();
 
-// Start update loop (every 2 seconds)
-updateController.startLoop(2000);
+// Start update loop with variable intervals if enabled
+const useVariableIntervals = PERFORMANCE.useVariableIntervals || false;
+if (useVariableIntervals) {
+  logInfo("Starting dashboard with variable intervals (fast: 1s, slow: 5s)", {
+    source: "dashboard",
+    action: "startup",
+    mode: "variable_intervals"
+  });
+  updateController.startLoop(TIMEOUTS.updateInterval, true);
+} else {
+  logInfo("Starting dashboard with uniform interval (2s)", {
+    source: "dashboard",
+    action: "startup",
+    mode: "uniform_interval"
+  });
+  updateController.startLoop(TIMEOUTS.updateInterval, false);
+}
+
+// Check for --open-bench argument to test benchmark overlay
+if (process.argv.includes('--open-bench')) {
+  logInfo("Opening benchmark overlay for testing", {
+    source: "dashboard",
+    action: "test_mode",
+    mode: "open_bench"
+  });
+  
+  // Wait a moment for initial render, then open benchmark overlay
+  setTimeout(async () => {
+    const onClear = async () => {
+      await benchmarkService.clear();
+      logInfo("Benchmark history cleared", {
+        source: "ui",
+        controller: "benchmark",
+        action: "clear_history",
+      });
+      await updateController.updateBenchmark();
+    };
+
+    const result = await showBenchmarkDetails(benchComponents, screen, benchmarkService, onClear);
+    
+    if (result === null) {
+      logInfo("No benchmark history available for testing", {
+        source: "ui",
+        controller: "benchmark",
+        action: "test_open_benchmark",
+      });
+    } else {
+      dashboardState.setBenchDetailsOverlay(benchComponents);
+      logInfo("Benchmark overlay opened successfully", {
+        source: "ui",
+        controller: "benchmark",
+        action: "test_open_benchmark",
+      });
+    }
+  }, 1000);
+}
 
 // Handle process termination
 process.on("SIGINT", async () => {

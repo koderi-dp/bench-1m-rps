@@ -1,11 +1,19 @@
 import blessed from "blessed";
+import {
+  getEnabledFrameworks,
+  getFramework,
+  getBenchmarkableEndpoints
+} from "../../../frameworks.config.js";
 
 /**
- * Get the menu structure with categories and commands
+ * Get the menu structure with categories and commands (dynamically generated)
  * @returns {Object} Menu structure grouped by category
  */
 export function getMenuItems() {
-  return {
+  const frameworks = getEnabledFrameworks();
+  const benchmarkableEndpoints = getBenchmarkableEndpoints();
+  
+  const menu = {
     "🚀 Quick Actions": {
       "Quick Start Wizard": "node rps.js quickstart",
       "Fresh Start / Full Cleanup": "node rps.js cleanup",
@@ -17,37 +25,48 @@ export function getMenuItems() {
       "Clean Redis Cluster": "node rps.js redis clean",
       "Check Redis Status": "node rps.js redis status",
     },
-    "🚀 PM2 Cluster": {
-      "Start Cpeak (specify instances)": "PROMPT_PM2_SETUP:cpeak",
-      "Start Express (specify instances)": "PROMPT_PM2_SETUP:express",
-      "Start Fastify (specify instances)": "PROMPT_PM2_SETUP:fastify",
-      "Stop PM2 Processes": "node rps.js pm2 stop",
-      "Restart PM2 Processes": "node rps.js pm2 restart",
-      "Delete PM2 Processes": "node rps.js pm2 delete",
-      "View PM2 Logs": "node rps.js pm2 logs",
-    },
-    "💻 Dev Servers": {
-      "Run Cpeak (Dev)": "node rps.js dev cpeak",
-      "Run Express (Dev)": "node rps.js dev express",
-      "Run Fastify (Dev)": "node rps.js dev fastify",
-    },
-    "📊 Benchmarks - Cpeak": {
-      "GET /simple": "node bench.js -f cpeak -d 20",
-      "POST /code": "node bench.js -f cpeak -e /code -m POST -d 20",
-      "GET /code-fast": "node bench.js -f cpeak -e /code-fast -d 20",
-    },
-    "📊 Benchmarks - Express": {
-      "GET /simple": "node bench.js -f express -d 20",
-      "POST /code": "node bench.js -f express -e /code -m POST -d 20",
-      "GET /code-fast": "node bench.js -f express -e /code-fast -d 20",
-    },
-    "📊 Benchmarks - Fastify": {
-      "GET /simple": "node bench.js -f fastify -d 20",
-    },
-    "🔧 Utilities": {
-      "Install Dependencies": "npm install",
-    },
+    "🚀 PM2 Cluster": {}
   };
+  
+  // Dynamically add PM2 start commands for each framework
+  for (const fw of frameworks) {
+    const fwConfig = getFramework(fw.name);
+    menu["🚀 PM2 Cluster"][`Start ${fwConfig.displayName} (specify instances)`] = `PROMPT_PM2_SETUP:${fwConfig.name}`;
+  }
+  
+  // Add common PM2 commands
+  menu["🚀 PM2 Cluster"]["Stop PM2 Processes"] = "node rps.js pm2 stop";
+  menu["🚀 PM2 Cluster"]["Restart PM2 Processes"] = "node rps.js pm2 restart";
+  menu["🚀 PM2 Cluster"]["Delete PM2 Processes"] = "node rps.js pm2 delete";
+  menu["🚀 PM2 Cluster"]["View PM2 Logs"] = "node rps.js pm2 logs";
+  
+  // Dynamically add Dev Servers section
+  menu["💻 Dev Servers"] = {};
+  for (const fw of frameworks) {
+    const fwConfig = getFramework(fw.name);
+    menu["💻 Dev Servers"][`Run ${fwConfig.displayName} (Dev)`] = `node rps.js dev ${fwConfig.name}`;
+  }
+  
+  // Dynamically add Benchmark sections for each framework
+  for (const fw of frameworks) {
+    const fwConfig = getFramework(fw.name);
+    const categoryName = `📊 Benchmarks - ${fwConfig.displayName}`;
+    menu[categoryName] = {};
+    
+    // Add benchmarkable endpoints for this framework
+    for (const endpoint of benchmarkableEndpoints) {
+      const label = `${endpoint.method} ${endpoint.path}`;
+      const command = `node bench.js -f ${fwConfig.name} -e ${endpoint.path} -m ${endpoint.method} -d 20`;
+      menu[categoryName][label] = command;
+    }
+  }
+  
+  // Utilities
+  menu["🔧 Utilities"] = {
+    "Install Dependencies": "npm install",
+  };
+  
+  return menu;
 }
 
 /**

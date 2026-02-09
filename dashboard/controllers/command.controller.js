@@ -7,8 +7,10 @@ import { info as logInfo, error as logError } from "../services/logger.service.j
  * CommandController - Executes shell commands and parses output
  */
 export class CommandController {
-  constructor(updateController) {
+  constructor(updateController, redisService = null, benchmarkService = null) {
     this.updateController = updateController;
+    this.redisService = redisService;
+    this.benchmarkService = benchmarkService;
   }
 
   /**
@@ -18,6 +20,12 @@ export class CommandController {
    */
   async execute(command, label) {
     const startTime = Date.now();
+    
+    // Check if this is a Redis command and invalidate cache before execution
+    const isRedisCommand = command.includes("redis.js") || command.includes("redis");
+    if (isRedisCommand && this.redisService) {
+      this.redisService.invalidateCache();
+    }
     
     // Log command start
     logInfo(`Command started: ${label}`, {
@@ -59,6 +67,10 @@ export class CommandController {
 
         // Check if benchmark completed and refresh summary
         if (cleanOutput.includes("BENCHMARK_RESULT:")) {
+          // Force reload benchmark history from disk (bench.js runs in separate process)
+          if (this.benchmarkService) {
+            await this.benchmarkService.reload();
+          }
           await this.updateController.updateBenchmark();
         }
       }

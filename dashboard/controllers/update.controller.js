@@ -4,17 +4,29 @@ import { error as logError } from "../services/logger.service.js";
 /**
  * UpdateController - Manages dashboard refresh cycle
  * Fetches data from services and emits events for widgets to subscribe to
+ * 
+ * Implements dual-lane update system:
+ * - Fast lane (1s): CPU, memory, PM2 CPU/mem, Redis ops/sec (volatile data)
+ * - Slow lane (5s): System info, uptime, load avg (stable data)
  */
 export class UpdateController {
   constructor(services, chartDataManager, screen = null) {
     this.services = services;
     this.chartDataManager = chartDataManager;
     this.screen = screen;
-    this.intervalId = null;
+    
+    // Dual interval system
+    this.fastIntervalId = null;
+    this.slowIntervalId = null;
+    this.fastInterval = 1000;  // 1 second for volatile data
+    this.slowInterval = 5000;  // 5 seconds for stable data
+    
+    // Track if we should use variable intervals
+    this.useVariableIntervals = false;
   }
 
   /**
-   * Update all dashboard components in parallel
+   * Update all dashboard components in parallel (legacy single-interval mode)
    */
   async updateAll() {
     try {
@@ -34,6 +46,54 @@ export class UpdateController {
         source: "controller",
         controller: "update",
         action: "updateAll"
+      });
+    }
+  }
+
+  /**
+   * Update fast lane - volatile data (1s interval)
+   * CPU, memory charts, PM2 stats, Redis stats
+   */
+  async updateFastLane() {
+    try {
+      await Promise.all([
+        this.updateCharts(),
+        this.updatePM2(),
+        this.updateRedis(),
+      ]);
+      
+      // Render screen after updates
+      if (this.screen) {
+        this.screen.render();
+      }
+    } catch (err) {
+      logError(err, {
+        source: "controller",
+        controller: "update",
+        action: "updateFastLane"
+      });
+    }
+  }
+
+  /**
+   * Update slow lane - stable data (5s interval)
+   * System info, benchmark results
+   */
+  async updateSlowLane() {
+    try {
+      await Promise.all([
+        this.updateBenchmark(),
+      ]);
+      
+      // Render screen after updates
+      if (this.screen) {
+        this.screen.render();
+      }
+    } catch (err) {
+      logError(err, {
+        source: "controller",
+        controller: "update",
+        action: "updateSlowLane"
       });
     }
   }
@@ -128,24 +188,53 @@ export class UpdateController {
   /**
    * Start the update loop
    * @param {number} interval - Update interval in milliseconds (default: 2000)
+   * @param {boolean} useVariableIntervals - Use fast/slow lanes (default: false)
    */
-  startLoop(interval = 2000) {
-    // Initial update
-    this.updateAll();
+  startLoop(interval = 2000, useVariableIntervals = false) {
+    this.useVariableIntervals = useVariableIntervals;
 
-    // Start interval
-    this.intervalId = setInterval(() => {
+    if (useVariableIntervals) {
+      // Variable interval mode - fast and slow lanes
+      this.updateFastLane(); // Initial fast lane update
+      this.updateSlowLane(); // Initial slow lane update
+      
+      // Start fast lane (1s)
+      this.fastIntervalId = setInterval(() => {
+        this.updateFastLane();
+      }, this.fastInterval);
+      
+      // Start slow lane (5s)
+      this.slowIntervalId = setInterval(() => {
+        this.updateSlowLane();
+      }, this.slowInterval);
+    } else {
+      // Legacy mode - single interval for all updates
       this.updateAll();
-    }, interval);
+      
+      this.intervalId = setInterval(() => {
+        this.updateAll();
+      }, interval);
+    }
   }
 
   /**
    * Stop the update loop
    */
   stopLoop() {
+    // Stop both interval types
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+    
+    if (this.fastIntervalId) {
+      clearInterval(this.fastIntervalId);
+      this.fastIntervalId = null;
+    }
+    
+    if (this.slowIntervalId) {
+      clearInterval(this.slowIntervalId);
+      this.slowIntervalId = null;
     }
   }
 
@@ -153,6 +242,14 @@ export class UpdateController {
    * Manual refresh (called by 'r' key)
    */
   async refresh() {
-    await this.updateAll();
+    if (this.useVariableIntervals) {
+      // In variable interval mode, refresh both lanes
+      await Promise.all([
+        this.updateFastLane(),
+        this.updateSlowLane()
+      ]);
+    } else {
+      await this.updateAll();
+    }
   }
 }

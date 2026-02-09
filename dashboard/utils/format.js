@@ -6,6 +6,7 @@ import { SPARKLINE_CHARS } from "../config/constants.js";
  * @returns {string} Formatted number (e.g., "1,000,000")
  */
 export function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0";
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 

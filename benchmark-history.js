@@ -4,6 +4,7 @@ import { readFile, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import { getFrameworkNames } from "./frameworks.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,6 +120,15 @@ export class BenchmarkHistory {
   }
 
   /**
+   * Force reload history from disk
+   * Use this to refresh cache when file was modified by another process
+   */
+  static async reload() {
+    this.historyData = null; // Clear cache
+    return await this.load();
+  }
+
+  /**
    * Get latest N results
    */
   static async getLatest(count = 3) {
@@ -205,8 +215,8 @@ export class BenchmarkHistory {
       byFramework: {},
     };
 
-    // Calculate stats per framework
-    for (const framework of ["cpeak", "express", "fastify"]) {
+    // Calculate stats per framework (dynamically from config)
+    for (const framework of getFrameworkNames()) {
       const frameworkResults = results.filter(r => r.framework === framework);
       
       if (frameworkResults.length > 0) {

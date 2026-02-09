@@ -1,4 +1,5 @@
 import { LIMITS } from "../config/constants.js";
+import { isValidFramework, getFrameworkNames } from "../../frameworks.config.js";
 
 /**
  * Validate PM2 instance count
@@ -82,12 +83,10 @@ export function validateRedisNodes(nodes) {
  * @returns {{valid: boolean, message: string}}
  */
 export function validateFramework(framework) {
-  const valid = ['cpeak', 'express', 'fastify'];
-  
-  if (!framework || !valid.includes(framework.toLowerCase())) {
+  if (!framework || !isValidFramework(framework.toLowerCase())) {
     return {
       valid: false,
-      message: `Framework must be one of: ${valid.join(', ')}`
+      message: `Framework must be one of: ${getFrameworkNames().join(', ')}`
     };
   }
 
