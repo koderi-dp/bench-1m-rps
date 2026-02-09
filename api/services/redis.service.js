@@ -15,8 +15,8 @@ export class RedisService {
   constructor(execFn = execRedisCommand, redisClient = null) {
     this.exec = execFn;
     this.redis = redisClient;
-    // Redis cluster is one level up from project root
-    this.clusterPath = join(__dirname, "../../redis-cluster");
+    // Redis cluster is one level up from project root (../redis-cluster from node-1m-rps)
+    this.clusterPath = join(__dirname, "../../../redis-cluster");
     
     // Cache for master ports (refreshed every 5s)
     this.masterPortsCache = null;
