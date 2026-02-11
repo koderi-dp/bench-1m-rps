@@ -1,230 +1,248 @@
-# Overview
+# Node.js 1M RPS Benchmark
 
-This is the main repository used in the [Handling 1 Million Requests per Second video](https://youtu.be/W4EwfEU8CGA).
+High-performance Node.js application targeting 1 million requests per second. Originally from the [Handling 1 Million Requests per Second video](https://youtu.be/W4EwfEU8CGA). Redis-only (no PostgreSQL).
 
-This version is Redis-only (no PostgreSQL dependency).
+## Architecture
+
+The project uses a **client-server architecture**:
+
+- **API** (`api/`) – REST API + WebSocket server (port 3100) that runs on the machine where PM2 and Redis execute. Manages Redis cluster, PM2 processes, benchmarks, and system stats.
+- **Dashboard** (`dashboard/`) – Terminal UI that connects to the API. Can run on the same machine or remotely (e.g. laptop connecting to a server).
+
+```
+┌─────────────────────┐         HTTP/WS          ┌─────────────────────┐
+│     Dashboard       │ ◄───────────────────────► │        API           │
+│  (terminal UI)      │      localhost:3100     │  (pm2, redis, etc)   │
+│  npm run client     │                          │  npm run api          │
+└─────────────────────┘                          └──────────┬──────────┘
+                                                             │
+                                    ┌────────────────────────┼────────────────────────┐
+                                    │                        │                        │
+                                    ▼                        ▼                        ▼
+                             ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+                             │ Redis Cluster│        │     PM2      │        │  Frameworks   │
+                             │ (7000-7005)  │        │   (daemon)   │        │ Express, etc  │
+                             └──────────────┘        └──────────────┘        └──────────────┘
+```
 
 ## Quick Start
 
-The easiest way to get started is using the **interactive menu**:
+### 1. Install dependencies
 
 ```bash
-npm start
-# or
-npm run menu
-```
-
-This opens a beautiful terminal UI with:
-- 🚀 Quick Start Wizard (auto-setup Redis + Express)
-- ⚡ Redis cluster management
-- 🚀 PM2 process management  
-- 📊 Built-in benchmarks for all frameworks
-- 💻 Development server launchers
-- ✓ Real-time system status
-
-### Super Quick Start
-
-If you just want everything running now:
-
-```bash
-npm run quickstart
-```
-
-This automatically:
-1. Sets up a 6-node Redis cluster
-2. Starts Express with PM2 in production mode
-3. Ready to benchmark!
-
-### Setup
-
-To run the code, you need Node.js and Redis installed.
-
-Install dependencies:
-
-```
 npm install
 ```
 
-Run one of the servers:
+### 2. Start the API server
+
+The API must run on the machine where PM2 and Redis will run (usually your dev machine or a remote server):
+
+```bash
+npm run api
+# or: node api/server.js
+```
+
+API runs at `http://localhost:3100` (configurable via `API_PORT`).
+
+### 3. Start the Dashboard
+
+In another terminal (can be a different machine):
+
+```bash
+npm run client
+# or: node dashboard/index.js
+```
+
+The dashboard connects to `http://localhost:3100` by default. Use `API_SERVER` to point to a remote API:
+
+```bash
+API_SERVER=http://192.168.1.100:3100 npm run client
+```
+
+Or use **Utilities → Connect to API** in the dashboard menu to switch at runtime.
+
+### 4. Run a benchmark
+
+1. Open the menu (**m**)
+2. Under **PM2 Cluster** → **Start Fastify (specify instances)** → enter e.g. `3`
+3. Under **Redis Cluster** → **Setup Redis Cluster** → enter e.g. `6`
+4. Under **Benchmarks** → pick a framework and endpoint
+
+---
+
+## Project Structure
 
 ```
-node cpeak.js
-```
-
-Or `node express.js` / `node fastify.js`.
-
-Expected startup log:
-
-```
-Cpeak server running at http://localhost:3000
-[redis] standalone ready.
+node-1m-rps/
+├── api/                    # API server (port 3100)
+│   ├── config/             # Frameworks, ecosystem
+│   ├── routes/             # PM2, Redis, benchmark, system
+│   ├── scripts/            # pm2.js, redis.js, rps.js (CLI)
+│   └── services/
+├── dashboard/              # Terminal UI (connects to API)
+│   ├── controllers/
+│   ├── services/
+│   └── ui/
+├── frameworks/             # Benchmark target servers
+│   ├── nodejs/             # Express, Fastify, Cpeak
+│   ├── bun/                # Bun native
+│   └── utils.js            # Shared Redis helpers
+├── database/
+│   └── redis.js            # Redis client (used by frameworks)
+└── package.json
 ```
 
 ---
 
-### Redis Cluster Mode
+## Redis Cluster
 
-Use `redis.sh` to run a local Redis cluster.
+Use the Node.js script (not `redis.sh`):
 
-Example 6-node cluster:
+```bash
+# Setup 6-node cluster
+node api/scripts/redis.js -setup -n 6
 
-```
-npm run redis:6:setup
-```
+# Stop (auto-detects nodes)
+node api/scripts/redis.js -stop
 
-Then run the app against the cluster:
+# Resume stopped nodes
+node api/scripts/redis.js -resume
 
-```
-REDIS_CLUSTER=true node express.js
-```
-
-Expected log:
-
-```
-Express server running at http://localhost:3001
-[redis] cluster ready. Total nodes 6 (masters: 3, replicas: 3)
+# Clean (stop + delete data)
+node api/scripts/redis.js -clean
 ```
 
-Stop/resume/clean:
+Options:
+- `-n, --nodes <number>` – Node count (required for setup)
+- `-r, --replicas <number>` – Replicas per master (default: 1)
+- `-prod` – Use redis6-server/redis6-cli
 
-```
-npm run redis:6:stop
-npm run redis:6:resume
-npm run redis:6:clean
-```
+Cluster data is stored in `../redis-cluster/` relative to the project root.
 
----
+Run frameworks in cluster mode:
 
-### Environment Variables
-
-- `REDIS_CLUSTER`: connect to Redis cluster mode when set to `true` (default: `false`).
-
----
-
-### Node.js Cluster Mode
-
-You can run Node cluster mode with PM2:
-
-```
-pm2 start ecosystem.config.cjs
-```
-
-By default this starts `cpeak.js`.
-
-To run another framework:
-
-```
-F=express pm2 start ecosystem.config.cjs
-```
-
-or
-
-```
-F=fastify pm2 start ecosystem.config.cjs
-```
-
-Check logs:
-
-```
-pm2 logs
+```bash
+REDIS_CLUSTER=true node frameworks/nodejs/express.js
 ```
 
 ---
 
-### Adding New Runtimes (C#, Go, Rust, etc.)
+## PM2 & Frameworks
 
-The system is **100% runtime-agnostic**. To add a new runtime (C#, Go, Rust, Python, Java, etc.), simply:
+Frameworks are configured in `api/config/frameworks.config.js`. Start via PM2:
 
-1. **Create your server implementation** in `frameworks/<runtime>/`
-   - Implement the 3 endpoints: `GET /simple`, `POST /code`, `GET /code-fast`
-   - Use the same Redis operations as existing implementations
+```bash
+# Start a framework (e.g. fastify with 3 instances)
+node api/scripts/pm2.js -start -f fastify -i 3
 
-2. **Add configuration** to `frameworks.config.js`:
+# Stop
+node api/scripts/pm2.js -stop -f fastify
 
-```javascript
-csharp: {
-  name: "csharp",
-  displayName: "C# (.NET)",
-  port: 3004,
-  color: "cyan",
-  file: "frameworks/csharp/Server.dll",  // or path to executable
-  enabled: true,
-  runtime: "dotnet",
-  interpreter: "dotnet",                   // Command to run your app
-  execMode: "fork",                        // "cluster" (Node.js) or "fork" (most others)
-  instances: 1,                            // Instances in cluster mode
-},
+# Status
+node api/scripts/pm2.js -status
+
+# Logs
+node api/scripts/pm2.js -logs
 ```
 
-**That's it!** PM2, benchmarking, and the dashboard will work automatically. No need to modify:
-- ❌ `ecosystem.config.cjs` (100% dynamic)
-- ❌ `pm2.js` (reads from config)
-- ❌ `bench.js` (uses port mapping)
-- ❌ `dashboard/` (uses `getEnabledFrameworks()`)
+Or use the dashboard menu ( **m** → PM2 Cluster).
 
-**Example: Adding Go**
+---
+
+## Dashboard
+
+| Key | Action |
+|-----|--------|
+| **m** | Open menu |
+| **b** | Benchmark history overlay |
+| **r** | Refresh |
+| **←/→** | Switch panels |
+| **s / c** | Copy logs (when log panel focused) |
+| **ESC / q** | Close overlay / quit |
+
+### Menu Sections
+
+- **Redis Cluster** – Setup, stop, resume, clean, status
+- **PM2 Cluster** – Start frameworks (with instance count), stop/restart/delete all
+- **Benchmarks** – Run autocannon benchmarks per framework and endpoint
+- **Utilities** – Connect to API, clear benchmark history
+
+---
+
+## Benchmarks
+
+Benchmark endpoints:
+
+- `GET /simple` – Framework overhead
+- `POST /code` – Write throughput (Redis + validation)
+- `GET /code-fast` – Read throughput (Redis lookup)
+
+From the dashboard menu or CLI:
+
+```bash
+# Using rps CLI (if installed: npm link or npx rps)
+npx rps bench fastify simple
+npx rps bench fastify code
+```
+
+Or directly with autocannon:
+
+```bash
+npx autocannon -m GET -c 20 -d 20 -p 2 -w 6 http://localhost:3002/simple
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_SERVER` | `http://localhost:3100` | API URL (dashboard) |
+| `API_PORT` | `3100` | API port |
+| `API_KEY` | (none) | Optional API key for auth |
+| `REDIS_CLUSTER` | `false` | `true` for Redis cluster mode |
+| `LOG_LEVEL` | `info` | Dashboard log level |
+| `DASHBOARD_DEBUG` | (unset) | `1` to log to console |
+
+---
+
+## Adding New Runtimes
+
+To add a new runtime (C#, Go, Rust, etc.):
+
+1. **Implement the server** in `frameworks/<runtime>/` with endpoints:
+   - `GET /simple`
+   - `POST /code`
+   - `GET /code-fast`
+
+2. **Configure** in `api/config/frameworks.config.js`:
+
 ```javascript
 go: {
   name: "go",
   displayName: "Go (Native)",
   port: 3005,
   color: "cyan",
-  file: "frameworks/go/server",    // Compiled binary
+  file: "frameworks/go/server",
   enabled: true,
   runtime: "go",
-  interpreter: "none",              // No interpreter for compiled binaries
-  execMode: "fork",
-  instances: 1,
-},
-```
-
-**Example: Adding Rust**
-```javascript
-rust: {
-  name: "rust",
-  displayName: "Rust (Actix)",
-  port: 3006,
-  color: "red",
-  file: "frameworks/rust/target/release/server",  // Compiled binary
-  enabled: true,
-  runtime: "rust",
   interpreter: "none",
   execMode: "fork",
   instances: 1,
 },
 ```
 
-**Key Properties:**
-- `execMode`: Use `"cluster"` for Node.js-style shared sockets, `"fork"` for everything else
-- `interpreter`: Command to run your app (`node`, `bun`, `dotnet`, `python`, `java`, etc.)
-  - Use `"none"` for compiled binaries (Go, Rust, C++)
-- `interpreterPath`: (Optional) Full path if interpreter isn't in PATH
-- `instances`: Default instance count (only applies in cluster mode)
-
-**Running Your New Runtime:**
-```bash
-# Development
-bun frameworks/<runtime>/server.ts   # or whatever command
-
-# PM2 (production)
-node pm2.js -start -f <name> -i <instances>
-node pm2.js -status
-pm2 logs <name>
-
-# Benchmarking
-node bench.js -f <name> -e /simple -d 10
-node bench.js -f <name> -e /code -m POST -d 10
-
-# Or use the interactive menu
-npm start
-```
+PM2, benchmarks, and the dashboard will pick it up automatically.
 
 ---
 
-### Benchmark
+## RPS CLI
 
-Example autocannon run:
+The `rps` CLI provides interactive and shortcut commands:
 
+```bash
+npx rps
+# or, if linked: rps
 ```
-npx autocannon -m GET --connections 20 --duration 20 --pipelining 2 --workers 6 "http://localhost:3000/simple"
-```
+
+Examples: `rps start`, `rps quickstart`, `rps redis setup`, `rps pm2 start fastify`, etc.
