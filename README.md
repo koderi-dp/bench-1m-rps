@@ -151,6 +151,8 @@ Or use the dashboard menu ( **m** → PM2 Cluster).
 
 ## Dashboard
 
+![Dashboard](client.png)
+
 | Key | Action |
 |-----|--------|
 | **m** | Open menu |
