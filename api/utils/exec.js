@@ -1,6 +1,16 @@
 import { exec } from "child_process";
 import { promisify } from "util";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { TIMEOUTS, BUFFERS } from "../config/constants.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * Project root directory (two levels up from api/utils/)
+ */
+export const PROJECT_ROOT = join(__dirname, "../..");
 
 /**
  * Promisified exec for async/await usage
@@ -15,6 +25,7 @@ export const execAsync = promisify(exec);
  */
 export async function execCommand(command, options = {}) {
   const defaultOptions = {
+    cwd: PROJECT_ROOT,
     maxBuffer: options.maxBuffer || BUFFERS.commandOutput,
     timeout: options.timeout || TIMEOUTS.command,
     encoding: 'utf-8'

@@ -81,7 +81,7 @@ export class PM2Service {
    */
   async start(framework, instances) {
     try {
-      const { stdout } = await this.exec(`node pm2.js -start -f ${framework} -i ${instances}`);
+      const { stdout } = await this.exec(`node api/scripts/pm2.js -start -f ${framework} -i ${instances}`);
       
       if (stdout.includes("started successfully") || stdout.includes("launched")) {
         const instanceCount = (stdout.match(/launched \d+ instances/i)?.[0]) || `${instances} instances`;
@@ -110,7 +110,7 @@ export class PM2Service {
    */
   async stop(framework) {
     try {
-      const { stdout } = await this.exec(`node pm2.js -stop -f ${framework}`);
+      const { stdout } = await this.exec(`node api/scripts/pm2.js -stop -f ${framework}`);
       
       if (stdout.includes("stopped successfully")) {
         return {
@@ -162,6 +162,44 @@ export class PM2Service {
       return {
         success: true,
         message: `Deleted ${framework}`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Error: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Stop all PM2 processes
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async stopAll() {
+    try {
+      await this.exec("pm2 stop all");
+      return {
+        success: true,
+        message: "Stopped all PM2 processes"
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Error: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Restart all PM2 processes
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async restartAll() {
+    try {
+      await this.exec("pm2 restart all");
+      return {
+        success: true,
+        message: "Restarted all PM2 processes"
       };
     } catch (error) {
       return {

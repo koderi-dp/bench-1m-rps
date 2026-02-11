@@ -1,7 +1,7 @@
 import blessed from "blessed";
 import contrib from "blessed-contrib";
 import { formatNumber } from "../../utils/format.js";
-import { getFrameworkNames } from "../../../frameworks.config.js";
+import { getFrameworkNames } from "../../config/frameworksConfig.js";
 
 /**
  * Create the benchmark history overlay (hidden by default)

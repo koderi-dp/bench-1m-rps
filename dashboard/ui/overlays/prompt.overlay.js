@@ -120,7 +120,7 @@ export function promptRedisSetup(screen, onSubmit) {
 
     // Use the first valid topology
     const topology = validTopologies[0];
-    const command = `node redis.js -setup -n ${nodeCount} -r ${topology.replicas}`;
+    const command = `node api/scripts/redis.js -setup -n ${nodeCount} -r ${topology.replicas}`;
 
     if (topology.replicas === 0) {
       logInfo(`Setting up ${nodeCount}-node cluster (${topology.masters} masters, no replicas)`, {
@@ -145,7 +145,7 @@ export function promptRedisSetup(screen, onSubmit) {
       );
     }
 
-    await onSubmit(command, "Setup Redis Cluster");
+    await onSubmit(nodeCount, topology.replicas);
   });
 
   // Handle cancel
@@ -273,7 +273,6 @@ export function promptPM2Setup(screen, framework, onSubmit) {
       return;
     }
 
-    const command = `node pm2.js -start -f ${framework} -i ${instances}`;
     logInfo(`Starting ${framework} with ${instances} instances...`, {
       source: "ui",
       component: "prompt",
@@ -281,7 +280,7 @@ export function promptPM2Setup(screen, framework, onSubmit) {
       framework,
       instances,
     });
-    await onSubmit(command, `Start ${framework}`);
+    await onSubmit(framework, instances);
   });
 
   // Handle cancel
@@ -298,6 +297,124 @@ export function promptPM2Setup(screen, framework, onSubmit) {
   screen.append(overlay);
   textbox.focus();
   textbox.setValue(""); // Empty default
+  textbox.readInput();
+  screen.render();
+}
+
+/**
+ * Show API connect prompt
+ * @param {blessed.Screen} screen - The blessed screen instance
+ * @param {string} currentUrl - Current API URL (pre-filled placeholder)
+ * @param {Function} onSubmit - Callback: (url) => Promise<void>
+ */
+export function promptAPIConnect(screen, currentUrl, onSubmit) {
+  const overlay = blessed.box({
+    parent: screen,
+    top: "center",
+    left: "center",
+    width: "70%",
+    height: 10,
+    border: {
+      type: "line",
+    },
+    style: {
+      bg: "black",
+      fg: "white",
+      border: {
+        fg: "yellow",
+      },
+    },
+    label: " Connect to API ",
+  });
+
+  const message = blessed.text({
+    parent: overlay,
+    top: 0,
+    left: 2,
+    content: "Enter API URL (e.g. http://localhost:3100 or http://192.168.1.100:3100):",
+    style: {
+      fg: "cyan",
+    },
+  });
+
+  const textbox = blessed.textbox({
+    parent: overlay,
+    top: 2,
+    left: 2,
+    width: "100%-4",
+    height: 3,
+    border: {
+      type: "line",
+    },
+    style: {
+      bg: "black",
+      fg: "white",
+      border: {
+        fg: "green",
+      },
+      focus: {
+        border: {
+          fg: "yellow",
+        },
+      },
+    },
+    keys: true,
+    mouse: true,
+    inputOnFocus: true,
+  });
+
+  const hint = blessed.text({
+    parent: overlay,
+    top: 6,
+    left: 2,
+    content: "Press Enter to connect, ESC to cancel",
+    style: {
+      fg: "gray",
+    },
+  });
+
+  textbox.on("submit", async (value) => {
+    screen.remove(overlay);
+
+    const url = value?.trim() || "";
+    if (!url) {
+      screen.render();
+      return;
+    }
+
+    // Validate URL format
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        throw new Error("URL must use http or https");
+      }
+    } catch (err) {
+      logError(`Invalid API URL: ${url}`, {
+        source: "ui",
+        component: "prompt",
+        action: "api_connect_validation",
+      });
+      screen.render();
+      return;
+    }
+
+    await onSubmit(url);
+    screen.render();
+  });
+
+  textbox.on("cancel", () => {
+    screen.remove(overlay);
+    screen.render();
+  });
+
+  textbox.key("escape", () => {
+    screen.remove(overlay);
+    screen.render();
+  });
+
+  screen.append(overlay);
+  textbox.focus();
+  textbox.setValue(currentUrl);
   textbox.readInput();
   screen.render();
 }

@@ -4,7 +4,7 @@ import {
   createCodeRecord,
   generateCode,
   getRandomCodeRecord,
-} from "../../utils.js";
+} from "../utils.js";
 
 /**
  * Shared Endpoint Handlers

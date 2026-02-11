@@ -66,12 +66,14 @@ export class CommandController {
         message = this.parseOutput(cleanOutput, command);
 
         // Check if benchmark completed and refresh summary
-        if (cleanOutput.includes("BENCHMARK_RESULT:")) {
-          // Force reload benchmark history from disk (bench.js runs in separate process)
-          if (this.benchmarkService) {
-            await this.benchmarkService.reload();
+        if (command.includes("bench.js")) {
+          const benchmarkResult = this.extractBenchmarkResult(cleanOutput);
+          if (benchmarkResult) {
+            if (this.benchmarkService) {
+              await this.benchmarkService.add(benchmarkResult);
+            }
+            await this.updateController.updateBenchmark();
           }
-          await this.updateController.updateBenchmark();
         }
       }
 
@@ -228,14 +230,38 @@ export class CommandController {
     }
 
     // Benchmark results
-    if (cleanOutput.includes("BENCHMARK_RESULT:")) {
-      // Parse benchmark results: BENCHMARK_RESULT:framework:reqPerSec:avgLatency:totalReqs
-      const match = cleanOutput.match(/BENCHMARK_RESULT:(\w+):(\d+):([0-9.]+):(\d+)/);
-      if (match) {
-        const [, fw, rps, latency, total] = match;
-        const formattedRps = formatNumber(parseInt(rps));
-        const formattedTotal = formatNumber(parseInt(total));
-        return `✓ Benchmark ${fw}: ${formattedRps} req/s (${latency}ms avg, ${formattedTotal} total)`;
+    const benchmarkResult = this.extractBenchmarkResult(cleanOutput);
+    if (benchmarkResult) {
+      const formattedRps = formatNumber(benchmarkResult.reqPerSec || 0);
+      const formattedTotal = formatNumber(benchmarkResult.totalReqs || 0);
+      return `✓ Benchmark ${benchmarkResult.framework}: ${formattedRps} req/s (${benchmarkResult.avgLatency}ms avg, ${formattedTotal} total)`;
+    }
+
+    return null;
+  }
+
+  extractBenchmarkResult(cleanOutput) {
+    const lines = cleanOutput
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    // Parse from bottom - benchmark JSON is expected near the end
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const parsed = JSON.parse(lines[i]);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          parsed.framework &&
+          parsed.reqPerSec != null &&
+          parsed.avgLatency != null &&
+          parsed.totalReqs != null
+        ) {
+          return parsed;
+        }
+      } catch {
+        // Ignore non-JSON lines
       }
     }
 

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { RedisService } from "../services/redis.service.js";
+import { info, error as logError } from "../services/logger.service.js";
 
 const router = Router();
 const redisService = new RedisService();
@@ -54,7 +55,9 @@ router.post("/setup", async (req, res, next) => {
       });
     }
 
+    info(`Setting up Redis cluster with ${nodeCount} nodes`, { action: "redis.setup", nodeCount });
     const result = await redisService.setup?.(nodeCount);
+    info(`Redis setup complete`, { action: "redis.setup", nodeCount, success: true });
 
     res.json({
       success: true,
@@ -72,7 +75,9 @@ router.post("/setup", async (req, res, next) => {
  */
 router.post("/stop", async (req, res, next) => {
   try {
+    info("Stopping Redis cluster", { action: "redis.stop" });
     const result = await redisService.stop?.();
+    info(`Redis stop: ${result?.message || "complete"}`, { action: "redis.stop", success: true });
 
     res.json({
       success: true,
@@ -90,12 +95,52 @@ router.post("/stop", async (req, res, next) => {
  */
 router.post("/clean", async (req, res, next) => {
   try {
+    info("Cleaning Redis cluster", { action: "redis.clean" });
     const result = await redisService.clean?.();
+    info(`Redis clean: ${result?.message || "complete"}`, { action: "redis.clean", success: true });
 
     res.json({
       success: true,
       message: "Redis cluster clean initiated",
       result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/redis/resume
+ * Resume Redis cluster
+ */
+router.post("/resume", async (req, res, next) => {
+  try {
+    info("Resuming Redis cluster", { action: "redis.resume" });
+    const result = await redisService.resume?.();
+    info(`Redis resume: ${result?.message || "complete"}`, { action: "redis.resume", success: true });
+
+    res.json({
+      success: true,
+      message: "Redis cluster resume initiated",
+      result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/redis/status
+ * Get Redis cluster status
+ */
+router.get("/status", async (req, res, next) => {
+  try {
+    const result = await redisService.status?.();
+    info(`Redis status: ${result?.message || "queried"}`, { action: "redis.status" });
+
+    res.json({
+      success: true,
+      ...result
     });
   } catch (error) {
     next(error);

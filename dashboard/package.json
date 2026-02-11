@@ -1,0 +1,10 @@
+{
+  "name": "node-1m-rps-dashboard",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "bench": "node scripts/bench.js"
+  }
+}

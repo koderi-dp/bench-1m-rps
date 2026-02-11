@@ -1,135 +1,67 @@
 import pino from "pino";
-import { createStream } from "rotating-file-stream";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, "../..");
+const apiRoot = join(__dirname, "..");
 
-// Ensure logs directory exists
-const logsDir = join(projectRoot, "logs");
+// Ensure logs directory exists in api folder
+const logsDir = join(apiRoot, "logs");
 if (!existsSync(logsDir)) {
   mkdirSync(logsDir, { recursive: true });
 }
 
+const isDev = process.env.NODE_ENV === "development";
+
 /**
- * Create rotating file stream for dashboard logs
- * Rotates daily or when file reaches 10MB
+ * API Logger
+ * - Development: pretty-printed to stdout
+ * - Production: JSON to stdout (for log aggregation)
  */
-const fileStream = createStream("dashboard.log", {
-  path: logsDir,
-  size: "10M", // Rotate every 10MB
-  interval: "1d", // Rotate daily
-  compress: "gzip", // Compress rotated files
-  maxFiles: 30, // Keep 30 days of logs
+export const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+  transport: isDev
+    ? {
+        target: "pino-pretty",
+        options: {
+          colorize: true,
+          translateTime: "HH:MM:ss",
+          ignore: "pid,hostname",
+        },
+      }
+    : undefined,
+  formatters: {
+    level: (label) => ({ level: label.toUpperCase() }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+  base: {
+    app: "node-1m-rps-api",
+  },
 });
 
 /**
- * Create Pino logger with dual output:
- * - File: JSON structured logs (production)
- * - Console: Pretty formatted (development, only if DASHBOARD_DEBUG is set)
- */
-const targets = [
-  {
-    target: "pino/file",
-    level: "info",
-    options: {
-      destination: 1, // stdout - but we'll use fileStream
-    },
-  },
-];
-
-// Add pretty printing in debug mode
-if (process.env.DASHBOARD_DEBUG === "1") {
-  targets.push({
-    target: "pino-pretty",
-    level: "debug",
-    options: {
-      destination: 2, // stderr
-      colorize: true,
-      translateTime: "HH:MM:ss",
-      ignore: "pid,hostname",
-    },
-  });
-}
-
-/**
- * Observer pattern - UI widgets can subscribe to log events
- */
-const observers = new Set();
-
-/**
- * Subscribe to log events
- * @param {Function} callback - Called with (level, message, context)
- * @returns {Function} Unsubscribe function
- */
-export function subscribe(callback) {
-  observers.add(callback);
-  return () => observers.delete(callback);
-}
-
-/**
- * Notify all observers of a log event
- */
-function notifyObservers(level, message, context) {
-  observers.forEach((callback) => {
-    try {
-      callback(level, message, context);
-    } catch (error) {
-      // Ignore observer errors to prevent logging loops
-    }
-  });
-}
-
-/**
- * Main dashboard logger instance
- */
-export const logger = pino(
-  {
-    level: process.env.LOG_LEVEL || "info",
-    formatters: {
-      level: (label) => {
-        return { level: label.toUpperCase() };
-      },
-    },
-    timestamp: pino.stdTimeFunctions.isoTime,
-    base: {
-      app: "node-1m-rps-dashboard",
-    },
-  },
-  fileStream
-);
-
-/**
- * Generic info level logging with context
- * @param {string} message - Log message
- * @param {Object} context - Contextual metadata (service, controller, action, etc.)
+ * Info level logging
  */
 export function info(message, context = {}) {
   logger.info(context, message);
-  notifyObservers("info", message, context);
 }
 
 /**
- * Generic debug level logging with context
- * @param {string} message - Log message
- * @param {Object} context - Contextual metadata (service, controller, action, etc.)
+ * Debug level logging
  */
 export function debug(message, context = {}) {
   logger.debug(context, message);
-  notifyObservers("debug", message, context);
 }
 
 /**
- * Generic error level logging with context
- * @param {string|Error} errorOrMessage - Error object or message
- * @param {Object} context - Contextual metadata (service, controller, action, etc.)
+ * Error level logging
  */
 export function error(errorOrMessage, context = {}) {
-  const message = errorOrMessage instanceof Error ? errorOrMessage.message : errorOrMessage;
-  
+  const message =
+    errorOrMessage instanceof Error ? errorOrMessage.message : errorOrMessage;
+
   if (errorOrMessage instanceof Error) {
     logger.error(
       {
@@ -145,18 +77,13 @@ export function error(errorOrMessage, context = {}) {
   } else {
     logger.error(context, errorOrMessage);
   }
-  
-  notifyObservers("error", message, context);
 }
 
 /**
- * Generic warn level logging with context
- * @param {string} message - Log message
- * @param {Object} context - Contextual metadata (service, controller, action, etc.)
+ * Warn level logging
  */
 export function warn(message, context = {}) {
   logger.warn(context, message);
-  notifyObservers("warn", message, context);
 }
 
 /**
@@ -167,15 +94,51 @@ export function createChildLogger(context) {
 }
 
 /**
- * Flush logs and close streams (call on shutdown)
+ * High-frequency polling endpoints that should use debug level
  */
-export function closeLogger() {
-  return new Promise((resolve) => {
-    fileStream.end(() => {
-      logger.flush();
-      resolve();
-    });
+const DEBUG_PATHS = new Set([
+  "/stats",
+  "/latest",
+  "/api/pm2/stats",
+  "/api/redis/stats",
+  "/api/system/stats",
+  "/api/benchmark/latest",
+  "/api/benchmark/stats",
+  "/health",
+]);
+
+/**
+ * Express request logging middleware
+ */
+export function requestLogger(req, res, next) {
+  const start = Date.now();
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    const isDebugPath = DEBUG_PATHS.has(req.path);
+    
+    // Use debug for high-frequency polling, warn for errors, info for rest
+    let level;
+    if (res.statusCode >= 400) {
+      level = "warn";
+    } else if (isDebugPath) {
+      level = "debug";
+    } else {
+      level = "info";
+    }
+
+    logger[level](
+      {
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        duration_ms: duration,
+      },
+      `${req.method} ${req.path} ${res.statusCode} (${duration}ms)`
+    );
   });
+
+  next();
 }
 
 export default logger;

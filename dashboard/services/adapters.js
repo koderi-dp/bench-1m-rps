@@ -151,7 +151,8 @@ export class BenchmarkServiceAdapter {
   }
 
   async getLatestByFramework() {
-    return this.apiClient.benchmarkLatestByFramework();
+    const res = await this.apiClient.benchmarkLatestByFramework();
+    return res.results || {};
   }
 
   async getByFramework(framework) {
@@ -160,8 +161,8 @@ export class BenchmarkServiceAdapter {
   }
 
   async add(result) {
-    // API doesn't support adding directly - results come from bench.js
-    return true;
+    const res = await this.apiClient.benchmarkAdd(result);
+    return !!res?.success;
   }
 
   async clear() {
@@ -191,13 +192,30 @@ export class BenchmarkServiceAdapter {
   }
 
   parseBenchmarkOutput(output) {
-    try {
-      const match = output.match(/BENCHMARK_RESULT:(.+)/);
-      if (!match) return null;
-      return JSON.parse(match[1]);
-    } catch (error) {
-      return null;
+    const lines = output
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const parsed = JSON.parse(lines[i]);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          parsed.framework &&
+          parsed.reqPerSec != null &&
+          parsed.avgLatency != null &&
+          parsed.totalReqs != null
+        ) {
+          return parsed;
+        }
+      } catch (error) {
+        // Ignore non-JSON lines
+      }
     }
+
+    return null;
   }
 
   checkBenchmarkError(output) {

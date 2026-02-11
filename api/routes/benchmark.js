@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { BenchmarkService } from "../services/benchmark.service.js";
+import { info } from "../services/logger.service.js";
 
 const router = Router();
 const benchmarkService = new BenchmarkService();
@@ -80,70 +81,37 @@ router.get("/latest-by-framework", async (req, res, next) => {
 });
 
 /**
- * POST /api/benchmark/run
- * Run a benchmark against target framework
- * Body: {
- *   framework: string,
- *   host: string (default: localhost),
- *   endpoint: string (default: /simple),
- *   method: string (default: GET),
- *   duration: number (default: 20),
- *   connections?: number,
- *   pipelining?: number,
- *   workers?: number,
- *   instances?: number
- * }
+ * POST /api/benchmark/add
+ * Add a benchmark result to history
  */
-router.post("/run", async (req, res, next) => {
+router.post("/add", async (req, res, next) => {
   try {
-    const {
-      framework,
-      host = "localhost",
-      endpoint = "/simple",
-      method = "GET",
-      duration = 20,
-      connections,
-      pipelining,
-      workers,
-      instances
-    } = req.body;
+    const result = req.body || {};
 
-    if (!framework) {
+    if (!result.framework) {
       return res.status(400).json({
         error: "Missing required field: framework"
       });
     }
 
-    // Return immediately, benchmark runs in background
-    res.status(202).json({
-      status: "accepted",
-      message: "Benchmark queued for execution",
-      benchmark: {
-        framework,
-        host,
-        endpoint,
-        method,
-        duration,
-        connections,
-        pipelining,
-        workers,
-        instances
-      }
+    if (!result.timestamp) {
+      result.timestamp = new Date().toISOString();
+    }
+
+    info(`Benchmark result: ${result.framework} ${result.endpoint} - ${result.reqPerSec} req/s`, {
+      action: "benchmark.add",
+      framework: result.framework,
+      endpoint: result.endpoint,
+      reqPerSec: result.reqPerSec,
+      avgLatency: result.avgLatency,
     });
 
-    // Run benchmark in background
-    benchmarkService.runBenchmark({
-      framework,
-      host,
-      endpoint,
-      method,
-      duration,
-      connections,
-      pipelining,
-      workers,
-      instances
-    }).catch(err => {
-      console.error("Benchmark execution error:", err);
+    const success = await benchmarkService.add(result);
+
+    res.status(201).json({
+      success,
+      result,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     next(error);

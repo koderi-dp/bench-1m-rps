@@ -1,0 +1,10 @@
+{
+  "name": "node-1m-rps-api",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
+  }
+}

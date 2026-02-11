@@ -3,7 +3,7 @@ import {
   getEnabledFrameworks,
   getFramework,
   getBenchmarkableEndpoints
-} from "../../../frameworks.config.js";
+} from "../../config/frameworksConfig.js";
 
 /**
  * Get the menu structure with categories and commands (dynamically generated)
@@ -14,16 +14,12 @@ export function getMenuItems() {
   const benchmarkableEndpoints = getBenchmarkableEndpoints();
   
   const menu = {
-    "🚀 Quick Actions": {
-      "Quick Start Wizard": "node rps.js quickstart",
-      "Fresh Start / Full Cleanup": "node rps.js cleanup",
-    },
     "⚡ Redis Cluster": {
       "Setup Redis Cluster (specify nodes)": "PROMPT_REDIS_SETUP",
-      "Stop Redis Cluster": "node rps.js redis stop",
-      "Resume Redis Cluster": "node rps.js redis resume",
-      "Clean Redis Cluster": "node rps.js redis clean",
-      "Check Redis Status": "node rps.js redis status",
+      "Stop Redis Cluster": "API:redis.stop",
+      "Resume Redis Cluster": "API:redis.resume",
+      "Clean Redis Cluster": "API:redis.clean",
+      "Check Redis Status": "API:redis.status",
     },
     "🚀 PM2 Cluster": {}
   };
@@ -35,17 +31,9 @@ export function getMenuItems() {
   }
   
   // Add common PM2 commands
-  menu["🚀 PM2 Cluster"]["Stop PM2 Processes"] = "node rps.js pm2 stop";
-  menu["🚀 PM2 Cluster"]["Restart PM2 Processes"] = "node rps.js pm2 restart";
-  menu["🚀 PM2 Cluster"]["Delete PM2 Processes"] = "node rps.js pm2 delete";
-  menu["🚀 PM2 Cluster"]["View PM2 Logs"] = "node rps.js pm2 logs";
-  
-  // Dynamically add Dev Servers section
-  menu["💻 Dev Servers"] = {};
-  for (const fw of frameworks) {
-    const fwConfig = getFramework(fw.name);
-    menu["💻 Dev Servers"][`Run ${fwConfig.displayName} (Dev)`] = `node rps.js dev ${fwConfig.name}`;
-  }
+  menu["🚀 PM2 Cluster"]["Stop All PM2 Processes"] = "API:pm2.stopAll";
+  menu["🚀 PM2 Cluster"]["Restart All PM2 Processes"] = "API:pm2.restartAll";
+  menu["🚀 PM2 Cluster"]["Delete All PM2 Processes"] = "API:pm2.deleteAll";
   
   // Dynamically add Benchmark sections for each framework
   for (const fw of frameworks) {
@@ -56,14 +44,15 @@ export function getMenuItems() {
     // Add benchmarkable endpoints for this framework
     for (const endpoint of benchmarkableEndpoints) {
       const label = `${endpoint.method} ${endpoint.path}`;
-      const command = `node bench.js -f ${fwConfig.name} -e ${endpoint.path} -m ${endpoint.method} -d 20`;
+      const command = `BENCH:${fwConfig.name}:${endpoint.path}:${endpoint.method}`;
       menu[categoryName][label] = command;
     }
   }
   
   // Utilities
   menu["🔧 Utilities"] = {
-    "Install Dependencies": "npm install",
+    "Connect to API": "PROMPT_API_CONNECT",
+    "Clear Benchmark History": "API:benchmark.clear",
   };
   
   return menu;

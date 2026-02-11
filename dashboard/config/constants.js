@@ -2,14 +2,10 @@
  * Dashboard Configuration Constants
  */
 
-import { getColorMapping } from "../../frameworks.config.js";
+import { getColorMapping, isConfigInitialized } from "./frameworksConfig.js";
 
-// Framework colors are now dynamically loaded from frameworks.config.js
-const frameworkColors = getColorMapping();
-
-export const COLORS = {
-  ...frameworkColors,
-  
+// Base colors (always available)
+const BASE_COLORS = {
   success: "green",
   warning: "yellow",
   error: "red",
@@ -17,6 +13,23 @@ export const COLORS = {
   neutral: "white",
   disabled: "gray"
 };
+
+/**
+ * Get colors including framework colors (call after config is initialized)
+ * @returns {Object} Color mapping
+ */
+export function getColors() {
+  if (isConfigInitialized()) {
+    return {
+      ...getColorMapping(),
+      ...BASE_COLORS
+    };
+  }
+  return BASE_COLORS;
+}
+
+// Export static COLORS for backward compatibility (without framework colors initially)
+export const COLORS = BASE_COLORS;
 
 export const GRID_LAYOUT = {
   rows: 12,

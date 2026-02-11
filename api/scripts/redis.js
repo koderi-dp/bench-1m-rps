@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, "../..");
+const redisClusterRoot = join(projectRoot, "../redis-cluster");
 
 // Colors
 const colors = {
@@ -26,7 +28,7 @@ function log(msg, color = "reset") {
 
 // Auto-detect existing Redis cluster nodes
 function detectExistingNodes() {
-  const clusterPath = join(__dirname, "..", "redis-cluster");
+  const clusterPath = redisClusterRoot;
   
   if (!existsSync(clusterPath)) {
     return [];
@@ -109,7 +111,7 @@ if (command !== "setup" && nodeCount === null) {
   
   if (detectedPorts.length === 0) {
     log(`\n✗ No existing Redis cluster nodes found in ../redis-cluster/`, "red");
-    log("Tip: Run setup first with: node redis.js -setup -n 6", "yellow");
+    log("Tip: Run setup first with: node api/scripts/redis.js -setup -n 6", "yellow");
     process.exit(1);
   }
   
@@ -121,7 +123,7 @@ if (command !== "setup" && nodeCount === null) {
 // Validate - setup requires explicit nodeCount
 if (command === "setup" && nodeCount === null) {
   log(`\n✗ Setup command requires -n flag to specify number of nodes`, "red");
-  log("Example: node redis.js -setup -n 6", "yellow");
+  log("Example: node api/scripts/redis.js -setup -n 6", "yellow");
   process.exit(1);
 }
 
@@ -149,7 +151,7 @@ if (command === "setup") {
 
 const startPort = 7000;
 const endPort = startPort + nodeCount - 1;
-const clusterDir = join(__dirname, "..", "redis-cluster");
+const clusterDir = redisClusterRoot;
 
 const redisServer = isProduction ? "redis6-server" : "redis-server";
 const redisCli = isProduction ? "redis6-cli" : "redis-cli";

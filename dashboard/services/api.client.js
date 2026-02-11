@@ -25,6 +25,20 @@ export class APIClient {
   }
 
   /**
+   * Get the target host (hostname only) from baseURL
+   * Used for benchmarks - the framework server runs on the same machine as the API
+   * @returns {string} Hostname (e.g., "192.168.1.100" or "localhost")
+   */
+  getTargetHost() {
+    try {
+      const url = new URL(this.baseURL);
+      return url.hostname;
+    } catch {
+      return "localhost";
+    }
+  }
+
+  /**
    * Make HTTP request to API
    */
   async request(method, path, body = null) {
@@ -152,6 +166,20 @@ export class APIClient {
   }
 
   /**
+   * Stop all processes
+   */
+  async pm2StopAll() {
+    return this.post("/api/pm2/stopAll");
+  }
+
+  /**
+   * Restart all processes
+   */
+  async pm2RestartAll() {
+    return this.post("/api/pm2/restartAll");
+  }
+
+  /**
    * Delete all processes
    */
   async pm2DeleteAll() {
@@ -186,6 +214,13 @@ export class APIClient {
    */
   async systemMemory() {
     return this.get("/api/system/memory");
+  }
+
+  /**
+   * Get frameworks and endpoints configuration
+   */
+  async systemConfig() {
+    return this.get("/api/system/config");
   }
 
   // ==================== Redis ====================
@@ -225,6 +260,20 @@ export class APIClient {
     return this.post("/api/redis/clean");
   }
 
+  /**
+   * Resume Redis
+   */
+  async redisResume() {
+    return this.post("/api/redis/resume");
+  }
+
+  /**
+   * Get Redis status
+   */
+  async redisStatus() {
+    return this.get("/api/redis/status");
+  }
+
   // ==================== Benchmark ====================
 
   /**
@@ -256,10 +305,10 @@ export class APIClient {
   }
 
   /**
-   * Run benchmark
+   * Add benchmark result
    */
-  async benchmarkRun(options) {
-    return this.post("/api/benchmark/run", options);
+  async benchmarkAdd(result) {
+    return this.post("/api/benchmark/add", result);
   }
 
   /**
@@ -462,6 +511,19 @@ export class APIClient {
     if (this.wsConnected) {
       this.ws.send(JSON.stringify({ type: "ping" }));
     }
+  }
+
+  /**
+   * Reconnect to a different API URL (updates in place for existing adapters)
+   * @param {string} baseURL - New API base URL (e.g. http://localhost:3100)
+   * @param {string|null} apiKey - Optional API key
+   */
+  reconnect(baseURL, apiKey = null) {
+    this.baseURL = baseURL;
+    this.wsURL = baseURL.replace(/^http/, "ws") + "/ws";
+    this.apiKey = apiKey;
+    this.disconnectWebSocket();
+    return this.connectWebSocket();
   }
 }
 

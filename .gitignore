@@ -2,5 +2,10 @@ node_modules
 .DS_Store
 .vscode
 keys.js
-.bench-history.json
-logs/
+
+# API data and logs
+api/data/
+api/logs/
+
+# Dashboard logs
+dashboard/logs/

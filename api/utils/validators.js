@@ -1,5 +1,5 @@
 import { LIMITS } from "../config/constants.js";
-import { isValidFramework, getFrameworkNames } from "../../frameworks.config.js";
+import { isValidFramework, getFrameworkNames } from "../config/frameworks.config.js";
 
 /**
  * Validate PM2 instance count
@@ -20,7 +20,7 @@ export function validatePM2Instances(instances) {
   if (count > LIMITS.maxPM2Instances) {
     return {
       valid: false,
-      message: `Maximum ${LIMITS.maxPM2Instances} instances allowed. Use CLI for more: node pm2.js -start -f <framework> -i ${count}`,
+      message: `Maximum ${LIMITS.maxPM2Instances} instances allowed. Use CLI for more: node api/scripts/pm2.js -start -f <framework> -i ${count}`,
       needsConfirmation: false
     };
   }

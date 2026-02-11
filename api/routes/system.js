@@ -1,5 +1,15 @@
 import { Router } from "express";
 import { SystemService } from "../services/system.service.js";
+import {
+  FRAMEWORKS,
+  ENDPOINTS,
+  CONFIG,
+  getEnabledFrameworks,
+  getFrameworkNames,
+  getColorMapping,
+  getPortMapping,
+  getBenchmarkableEndpoints,
+} from "../config/frameworks.config.js";
 
 const router = Router();
 const systemService = new SystemService();
@@ -50,6 +60,28 @@ router.get("/cpu", async (req, res, next) => {
     
     res.json({
       cpu,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/system/config
+ * Get frameworks and endpoints configuration
+ * Used by dashboard when running on remote machine
+ */
+router.get("/config", async (req, res, next) => {
+  try {
+    res.json({
+      frameworks: getEnabledFrameworks(),
+      frameworkNames: getFrameworkNames(),
+      endpoints: ENDPOINTS,
+      benchmarkableEndpoints: getBenchmarkableEndpoints(),
+      colors: getColorMapping(),
+      ports: getPortMapping(),
+      defaults: CONFIG,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

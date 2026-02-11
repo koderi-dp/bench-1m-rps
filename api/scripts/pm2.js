@@ -13,11 +13,13 @@ import {
   getFramework,
   getEnabledFrameworks,
   CONFIG
-} from "./frameworks.config.js";
+} from "../config/frameworks.config.js";
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, "../..");
+const ecosystemConfigPath = join(projectRoot, "api/config/ecosystem.config.cjs");
 
 // Colors
 const colors = {
@@ -194,7 +196,7 @@ function runCommand(cmd, description) {
     const child = spawn(cmd, [], {
       shell: true,
       stdio: "inherit",
-      cwd: __dirname,
+      cwd: projectRoot,
       env: process.env,
     });
     
@@ -214,7 +216,7 @@ function runCommand(cmd, description) {
 
 // Start framework
 async function startFramework(fw, inst) {
-  const configFile = "ecosystem.config.cjs";
+  const configFile = ecosystemConfigPath;
   
   // Get framework config to determine runtime and script path
   const fwConfig = getFramework(fw);
@@ -223,7 +225,7 @@ async function startFramework(fw, inst) {
     return false;
   }
   
-  if (!existsSync(join(__dirname, configFile))) {
+  if (!existsSync(configFile)) {
     log(`\n❌ Config file not found: ${configFile}`, "red");
     return false;
   }
@@ -258,7 +260,8 @@ async function startFramework(fw, inst) {
   
   // Build PM2 command with all config passed via environment variables
   const reusePortEnv = reusePort ? `REUSE_PORT=true` : `REUSE_PORT=false`;
-  const cmd = `F=${fw} I=${actualInstances} SCRIPT=./${fwConfig.file} INTERPRETER=${interpreter} EXEC_MODE=${execMode} ${reusePortEnv} pm2 start ${configFile} --update-env`;
+  const scriptPath = join(projectRoot, fwConfig.file);
+  const cmd = `F=${fw} I=${actualInstances} SCRIPT="${scriptPath}" INTERPRETER="${interpreter}" EXEC_MODE=${execMode} ${reusePortEnv} pm2 start "${configFile}" --update-env`;
   
   // Calculate actual instance count for display
   const effectiveInstances = (execMode === 'fork' && !reusePort) ? 1 : actualInstances;

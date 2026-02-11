@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { redis } from "./database/redis.js";
+import { redis } from "../database/redis.js";
 
 const generateCode = () => {
   // 375 random bytes becomes 500 Base64 characters
@@ -26,7 +26,7 @@ async function getMaxId() {
 
 async function createCodeRecord() {
   const code = generateCode();
-  
+
   // Remove hash tags to distribute keys across all Redis Cluster masters
   const isNew = await redis.sadd("codes:unique", code);
 

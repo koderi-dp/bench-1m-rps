@@ -6,10 +6,10 @@ import { existsSync, mkdirSync } from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, "../..");
+const dashboardRoot = join(__dirname, "..");
 
-// Ensure logs directory exists
-const logsDir = join(projectRoot, "logs");
+// Ensure logs directory exists in dashboard folder
+const logsDir = join(dashboardRoot, "logs");
 if (!existsSync(logsDir)) {
   mkdirSync(logsDir, { recursive: true });
 }

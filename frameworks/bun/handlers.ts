@@ -3,7 +3,7 @@ import {
   createCodeRecord,
   generateCode,
   getRandomCodeRecord,
-} from "../../utils.js";
+} from "../utils.js";
 
 /**
  * Bun-Optimized Endpoint Handlers

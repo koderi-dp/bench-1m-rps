@@ -28,7 +28,7 @@ import { createActivityLog } from "./ui/widgets/activityLog.js";
 import { createMenuOverlay, showMenu, hideMenu } from "./ui/overlays/menu.overlay.js";
 import { createBenchmarkOverlay, showBenchmarkDetails, hideBenchmarkDetails } from "./ui/overlays/benchmark.overlay.js";
 import { openSelectionOverlay, closeSelectionOverlay, getLogContent } from "./ui/overlays/selection.overlay.js";
-import { promptRedisSetup, promptPM2Setup } from "./ui/overlays/prompt.overlay.js";
+import { promptRedisSetup, promptPM2Setup, promptAPIConnect } from "./ui/overlays/prompt.overlay.js";
 
 // Controllers
 import { UpdateController } from "./controllers/update.controller.js";
@@ -40,9 +40,13 @@ import * as dashboardState from "./state/dashboard.state.js";
 
 // Config
 import { PERFORMANCE, TIMEOUTS } from "./config/constants.js";
+import { initConfig, resetConfig, getFrameworkPort } from "./config/frameworksConfig.js";
 
 // Logger service
 import { info as logInfo, error as logError, closeLogger } from "./services/logger.service.js";
+
+// Benchmark service (local, not adapter)
+import { runBenchmark } from "./services/benchmark.service.js";
 
 // ==================== INITIALIZATION ====================
 
@@ -52,6 +56,16 @@ const apiKey = process.env.API_KEY || null;
 const apiClient = initAPIClient(apiServer, apiKey);
 
 logInfo(`Connecting to API server at ${apiServer}`, { component: "dashboard", action: "init" });
+
+// Initialize frameworks config from API
+try {
+  await initConfig(apiClient);
+  logInfo("Loaded frameworks config from API", { component: "dashboard", action: "init" });
+} catch (err) {
+  console.error(`Failed to load config from API: ${err.message}`);
+  console.error("Make sure the API server is running.");
+  process.exit(1);
+}
 
 // Create screen and grid
 const screen = createScreen();
@@ -161,18 +175,156 @@ async function handleMenuCommand(command, label) {
   dashboardState.setMenuOverlay(null);
   
   // Handle special prompt commands
-  if (command === "PROMPT_REDIS_SETUP") {
-    promptRedisSetup(screen, async (cmd, lbl) => {
-      await commandController.execute(cmd, lbl);
+  if (command === "PROMPT_API_CONNECT") {
+    promptAPIConnect(screen, apiClient.baseURL, async (url) => {
+      try {
+        logInfo(`Connecting to API at ${url}`, { source: "ui", action: "api_connect" });
+        resetConfig();
+        await apiClient.reconnect(url);
+        await initConfig(apiClient);
+        logInfo(`Connected to API at ${url}`, { source: "ui", action: "api_connect", success: true });
+        updateController.refresh();
+      } catch (err) {
+        logError(`Failed to connect to API: ${err.message}`, { source: "ui", action: "api_connect" });
+      }
+    });
+  } else if (command === "PROMPT_REDIS_SETUP") {
+    promptRedisSetup(screen, async (nodeCount, replicas) => {
+      try {
+        logInfo(`Setting up Redis cluster with ${nodeCount} nodes`, { source: "ui", action: "redis_setup" });
+        const result = await apiClient.redisSetup(nodeCount);
+        logInfo(result?.message || "Redis setup initiated", { source: "ui", action: "redis_setup", success: true });
+        updateController.updateRedis();
+      } catch (err) {
+        logError(`Redis setup failed: ${err.message || err}`, { action: "redis_setup" });
+      }
     });
   } else if (command.startsWith("PROMPT_PM2_SETUP:")) {
     const framework = command.split(":")[1];
-    promptPM2Setup(screen, framework, async (cmd, lbl) => {
-      await commandController.execute(cmd, lbl);
+    promptPM2Setup(screen, framework, async (fw, instances) => {
+      try {
+        logInfo(`Starting ${fw} with ${instances} instances`, { source: "ui", action: "pm2_start" });
+        const result = await apiClient.pm2Start(fw, instances);
+        logInfo(result?.message || `${fw} started`, { source: "ui", action: "pm2_start", success: true });
+        updateController.updatePM2();
+      } catch (err) {
+        logError(`PM2 start failed: ${err.message || err}`, { action: "pm2_start" });
+      }
     });
+  } else if (command.startsWith("API:")) {
+    // API action - call apiClient method
+    await executeAPIAction(command, label);
+  } else if (command.startsWith("BENCH:")) {
+    // Benchmark action - run benchmark directly using service
+    const parts = command.split(":");
+    const framework = parts[1];
+    const endpoint = parts[2];
+    const method = parts[3];
+    const port = getFrameworkPort(framework);
+    
+    if (!port) {
+      logError(`Unknown framework: ${framework}`, { action: "benchmark" });
+      return;
+    }
+    
+    logInfo(`Starting benchmark: ${framework} ${method} ${endpoint}`, { source: "ui", action: "benchmark", framework, endpoint, method });
+    
+    try {
+      const result = await runBenchmark({
+        apiClient,  // Pass API client for PM2 status check
+        framework,
+        port,
+        endpoint,
+        method,
+        duration: 20,
+        onProgress: (progress) => {
+          if (progress.status === "starting") {
+            logInfo(`Benchmark: ${progress.url} - ${progress.connections} connections, ${progress.workers} workers`, { source: "ui", action: "benchmark" });
+          }
+        },
+      });
+      
+      // Send result to API for storage
+      await apiClient.benchmarkAdd(result);
+      
+      logInfo(`Benchmark complete: ${result.reqPerSec.toLocaleString()} req/s, ${result.avgLatency}ms avg latency`, { 
+        source: "ui",
+        action: "benchmark", 
+        framework,
+        reqPerSec: result.reqPerSec,
+        avgLatency: result.avgLatency,
+      });
+      
+      // Refresh benchmark table
+      updateController.updateBenchmark();
+    } catch (err) {
+      logError(`Benchmark failed: ${err.message}`, { action: "benchmark", framework });
+    }
   } else {
-    // Regular command
+    // Regular shell command (fallback)
     await commandController.execute(command, label);
+  }
+}
+
+/**
+ * Execute an API action from menu
+ */
+async function executeAPIAction(command, label) {
+  const action = command.replace("API:", "");
+  
+  try {
+    logInfo(`Executing: ${label}`, { source: "ui", action: "api_action", apiAction: action });
+    
+    let result;
+    switch (action) {
+      // Redis actions
+      case "redis.stop":
+        result = await apiClient.redisStop();
+        break;
+      case "redis.resume":
+        result = await apiClient.redisResume();
+        break;
+      case "redis.clean":
+        result = await apiClient.redisClean();
+        break;
+      case "redis.status":
+        result = await apiClient.redisStatus();
+        break;
+      
+      // PM2 actions
+      case "pm2.stopAll":
+        result = await apiClient.pm2StopAll();
+        break;
+      case "pm2.restartAll":
+        result = await apiClient.pm2RestartAll();
+        break;
+      case "pm2.deleteAll":
+        result = await apiClient.pm2DeleteAll();
+        break;
+      
+      // Benchmark actions
+      case "benchmark.clear":
+        result = await apiClient.benchmarkClear();
+        break;
+      
+      default:
+        logError(`Unknown API action: ${action}`, { action: "api_action" });
+        return;
+    }
+    
+    const message = result?.message || result?.success ? "Success" : "Completed";
+    logInfo(`${label}: ${message}`, { source: "ui", action: "api_action", apiAction: action, success: true });
+    
+    // Refresh relevant dashboard sections
+    if (action.startsWith("redis.")) {
+      updateController.updateRedis();
+    } else if (action.startsWith("pm2.")) {
+      updateController.updatePM2();
+    } else if (action.startsWith("benchmark.")) {
+      updateController.updateBenchmark();
+    }
+  } catch (err) {
+    logError(`${label} failed: ${err.message || err}`, { action: "api_action", apiAction: action });
   }
 }
 

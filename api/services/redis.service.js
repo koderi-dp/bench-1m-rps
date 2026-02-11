@@ -221,12 +221,20 @@ export class RedisService {
   /**
    * Setup Redis cluster
    * @param {number} nodes - Number of nodes
-   * @param {number} replicas - Replicas per master
+   * @param {number} replicas - Replicas per master (default: auto-calculated)
    * @returns {Promise<{success: boolean, message: string}>}
    */
-  async setup(nodes, replicas) {
+  async setup(nodes, replicas = null) {
+    // Auto-calculate replicas if not specified:
+    // - 6 nodes = 1 replica (3 masters + 3 replicas)
+    // - 3 nodes = 0 replicas (3 masters)
+    // Formula: replicas = (nodes / 3) - 1, minimum 0
+    if (replicas === null) {
+      replicas = Math.max(0, Math.floor(nodes / 3) - 1);
+    }
+    
     try {
-      const { stdout } = await this.exec(`node redis.js -setup -n ${nodes} -r ${replicas}`);
+      const { stdout } = await this.exec(`node api/scripts/redis.js -setup -n ${nodes} -r ${replicas}`);
       
       // Invalidate cache after cluster changes
       this.invalidateCache();
@@ -261,7 +269,7 @@ export class RedisService {
    */
   async stop() {
     try {
-      const { stdout } = await this.exec("node redis.js -stop");
+      const { stdout } = await this.exec("node api/scripts/redis.js -stop");
       
       // Invalidate cache after cluster changes
       this.invalidateCache();
@@ -290,7 +298,7 @@ export class RedisService {
    */
   async resume() {
     try {
-      const { stdout } = await this.exec("node redis.js -resume");
+      const { stdout } = await this.exec("node api/scripts/redis.js -resume");
       
       // Invalidate cache after cluster changes
       this.invalidateCache();
@@ -319,7 +327,7 @@ export class RedisService {
    */
   async clean() {
     try {
-      await this.exec("node redis.js -clean");
+      await this.exec("node api/scripts/redis.js -clean");
       
       // Invalidate cache after cluster changes
       this.invalidateCache();
@@ -342,22 +350,32 @@ export class RedisService {
   }
 
   /**
-   * Get cluster status
-   * @returns {Promise<{success: boolean, message: string}>}
+   * Get cluster status by checking nodes directly
+   * @returns {Promise<{success: boolean, message: string, nodes: number}>}
    */
   async status() {
     try {
-      const { stdout } = await this.exec("node redis.js -status");
+      const stats = await this.getStats();
+      const notRunning = stats.some(s => s.includes("not running"));
       
-      const onlineCount = (stdout.match(/online/gi) || []).length;
+      if (notRunning || stats.length === 0) {
+        return {
+          success: true,
+          message: "Redis cluster not running",
+          nodes: 0
+        };
+      }
+      
       return {
         success: true,
-        message: `Redis status: ${onlineCount} nodes online`
+        message: `Redis cluster: ${stats.length} master nodes online`,
+        nodes: stats.length
       };
     } catch (error) {
       return {
         success: false,
-        message: `Error: ${error.message}`
+        message: `Error: ${error.message}`,
+        nodes: 0
       };
     }
   }

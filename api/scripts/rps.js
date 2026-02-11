@@ -2,11 +2,12 @@
 
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
-import { dirname } from "path";
-import { getEnabledFrameworks, getBenchmarkableEndpoints } from "./frameworks.config.js";
+import { dirname, join } from "path";
+import { getEnabledFrameworks, getBenchmarkableEndpoints } from "../config/frameworks.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, "../..");
 
 // Color helpers
 const colors = {
@@ -28,43 +29,43 @@ function generateCommands() {
   const commands = {
     start: {
       desc: "Launch interactive dashboard",
-      cmd: "node dashboard.js",
+      cmd: "node dashboard/index.js",
     },
     dashboard: {
       desc: "Launch interactive dashboard (alias for start)",
-      cmd: "node dashboard.js",
+      cmd: "node dashboard/index.js",
     },
     
     // Quick actions
     quickstart: {
       desc: "Setup Redis + Start Express (auto setup)",
-      cmd: "npm run quickstart",
+      cmd: "node api/scripts/redis.js -setup -n 6 && node api/scripts/pm2.js -start -f express",
     },
     cleanup: {
       desc: "Stop everything and clean all data",
-      cmd: "pm2 delete all 2>/dev/null || true && node redis.js -clean",
+      cmd: "pm2 delete all 2>/dev/null || true && node api/scripts/redis.js -clean",
     },
 
     // Redis commands
     "redis setup": {
       desc: "Setup Redis Cluster (6 nodes)",
-      cmd: "node redis.js -setup -n 6",
+      cmd: "node api/scripts/redis.js -setup -n 6",
     },
     "redis start": {
       desc: "Setup Redis Cluster (6 nodes)",
-      cmd: "node redis.js -setup -n 6",
+      cmd: "node api/scripts/redis.js -setup -n 6",
     },
     "redis stop": {
       desc: "Stop Redis Cluster (auto-detects nodes)",
-      cmd: "node redis.js -stop",
+      cmd: "node api/scripts/redis.js -stop",
     },
     "redis resume": {
       desc: "Resume stopped Redis Cluster (auto-detects nodes)",
-      cmd: "node redis.js -resume",
+      cmd: "node api/scripts/redis.js -resume",
     },
     "redis clean": {
       desc: "Delete all Redis data & nodes (auto-detects nodes)",
-      cmd: "node redis.js -clean",
+      cmd: "node api/scripts/redis.js -clean",
     },
     "redis status": {
       desc: "Check Redis Cluster status",
@@ -74,23 +75,23 @@ function generateCommands() {
     // PM2 commands (static)
     "pm2 stop": {
       desc: "Stop all PM2 processes",
-      cmd: "node pm2.js -stop",
+      cmd: "node api/scripts/pm2.js -stop",
     },
     "pm2 delete": {
       desc: "Delete all PM2 processes",
-      cmd: "node pm2.js -delete",
+      cmd: "node api/scripts/pm2.js -delete",
     },
     "pm2 restart": {
       desc: "Restart all PM2 processes",
-      cmd: "node pm2.js -restart",
+      cmd: "node api/scripts/pm2.js -restart",
     },
     "pm2 logs": {
       desc: "View PM2 logs (live)",
-      cmd: "node pm2.js -logs",
+      cmd: "node api/scripts/pm2.js -logs",
     },
     "pm2 status": {
       desc: "View PM2 process status",
-      cmd: "node pm2.js -status",
+      cmd: "node api/scripts/pm2.js -status",
     },
   };
 
@@ -102,7 +103,7 @@ function generateCommands() {
     // PM2 commands
     commands[`pm2 ${fw.name}`] = {
       desc: `Start ${fw.displayName} with PM2 (port ${fw.port})`,
-      cmd: `node pm2.js -start -f ${fw.name}`,
+      cmd: `node api/scripts/pm2.js -start -f ${fw.name}`,
     };
     
     // Benchmark commands - auto-generate from ENDPOINTS
@@ -113,7 +114,7 @@ function generateCommands() {
         : `bench ${fw.name}`;
       
       // Build bench.js command
-      let benchCmd = `node bench.js -f ${fw.name}`;
+      let benchCmd = `node dashboard/scripts/bench.js -f ${fw.name}`;
       
       // Add endpoint path if not the default /simple
       if (endpoint.path !== '/simple') {
@@ -217,7 +218,7 @@ function executeCommand(commandKey) {
   const child = spawn(command.cmd, [], {
     shell: true,
     stdio: "inherit",
-    cwd: __dirname,
+    cwd: projectRoot,
   });
   
   child.on("exit", (code) => {

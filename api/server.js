@@ -12,6 +12,7 @@ import { redisRouter } from "./routes/redis.js";
 import { systemRouter } from "./routes/system.js";
 import { benchmarkRouter } from "./routes/benchmark.js";
 import { wsHandler } from "./routes/websocket.js";
+import { info, requestLogger } from "./services/logger.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +26,7 @@ const HOST = process.env.API_HOST || "0.0.0.0";
 
 // Middleware
 app.use(express.json());
+app.use(requestLogger);
 app.use(authMiddleware);
 
 // Health check
@@ -58,24 +60,24 @@ app.use((req, res) => {
 
 // Start server
 server.listen(PORT, HOST, () => {
-  console.log(`API Server running on http://${HOST}:${PORT}`);
-  console.log(`WebSocket available at ws://${HOST}:${PORT}/ws`);
-  console.log(`Health check: GET http://${HOST}:${PORT}/health`);
+  info(`API Server started`, { host: HOST, port: PORT });
+  info(`WebSocket available at ws://${HOST}:${PORT}/ws`);
+  info(`Health check: GET http://${HOST}:${PORT}/health`);
 });
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {
-  console.log("SIGTERM received, shutting down gracefully...");
+  info("SIGTERM received, shutting down gracefully...");
   server.close(() => {
-    console.log("Server closed");
+    info("Server closed");
     process.exit(0);
   });
 });
 
 process.on("SIGINT", async () => {
-  console.log("SIGINT received, shutting down gracefully...");
+  info("SIGINT received, shutting down gracefully...");
   server.close(() => {
-    console.log("Server closed");
+    info("Server closed");
     process.exit(0);
   });
 });

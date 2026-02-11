@@ -1,182 +1,240 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile, access } from "fs/promises";
-import { join } from "path";
+import Database from "better-sqlite3";
+import { existsSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { dirname } from "path";
-import { getFrameworkNames } from "../../frameworks.config.js";
+import { getFrameworkNames } from "../config/frameworks.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const apiRoot = join(__dirname, "..");
 
-const HISTORY_FILE = join(__dirname, "../../.bench-history.json");
+const dataDir = join(apiRoot, "data");
+const DB_FILE = join(dataDir, "benchmark-history.db");
 const MAX_RESULTS = 20;
 
+// Ensure data directory exists
+if (!existsSync(dataDir)) {
+  mkdirSync(dataDir, { recursive: true });
+}
+
 /**
- * Benchmark History Manager
- * Handles persistent storage of benchmark results with automatic rotation
+ * Benchmark History Manager backed by SQLite (better-sqlite3)
  */
 export class BenchmarkHistory {
-  static historyData = null;
+  static db = null;
+  static initialized = false;
 
-  /**
-   * Load history from file or create new empty history
-   */
-  static async load() {
-    try {
-      // Check if file exists
-      await access(HISTORY_FILE);
-      
-      // Read and parse file
-      const content = await readFile(HISTORY_FILE, "utf-8");
-      const data = JSON.parse(content);
-      
-      // Validate schema
-      if (!data.version || !Array.isArray(data.results)) {
-        console.warn("Invalid history file format, creating new history");
-        return this.createEmpty();
-      }
-      
-      this.historyData = data;
-      return data;
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        // File doesn't exist, create new
-        return this.createEmpty();
-      }
-      
-      console.warn(`Error loading history: ${error.message}`);
-      return this.createEmpty();
-    }
+  static init() {
+    if (this.initialized) return;
+
+    this.db = new Database(DB_FILE);
+    this.db.pragma("journal_mode = WAL");
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS benchmark_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        framework TEXT NOT NULL,
+        endpoint TEXT,
+        method TEXT,
+        reqPerSec INTEGER,
+        avgLatency REAL,
+        p50Latency REAL,
+        p90Latency REAL,
+        p99Latency REAL,
+        totalReqs INTEGER,
+        duration REAL,
+        connections INTEGER,
+        workers INTEGER,
+        pipelining INTEGER,
+        errors INTEGER DEFAULT 0,
+        timeouts INTEGER DEFAULT 0,
+        non2xx INTEGER DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bench_timestamp
+      ON benchmark_results(timestamp DESC, id DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_bench_framework
+      ON benchmark_results(framework);
+
+      CREATE INDEX IF NOT EXISTS idx_bench_combo
+      ON benchmark_results(framework, endpoint, method, timestamp DESC);
+    `);
+
+    this.initialized = true;
+  }
+
+  static rotate() {
+    this.db.exec(`
+      DELETE FROM benchmark_results
+      WHERE id NOT IN (
+        SELECT id
+        FROM benchmark_results
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ${MAX_RESULTS}
+      )
+    `);
+  }
+
+  static mapRow(row) {
+    return {
+      timestamp: row.timestamp,
+      framework: row.framework,
+      endpoint: row.endpoint,
+      method: row.method,
+      reqPerSec: row.reqPerSec,
+      avgLatency: row.avgLatency,
+      p50Latency: row.p50Latency,
+      p90Latency: row.p90Latency,
+      p99Latency: row.p99Latency,
+      totalReqs: row.totalReqs,
+      duration: row.duration,
+      connections: row.connections,
+      workers: row.workers,
+      pipelining: row.pipelining,
+      errors: row.errors,
+      timeouts: row.timeouts,
+      non2xx: row.non2xx,
+    };
   }
 
   /**
-   * Create empty history structure
+   * Compatibility method retained for existing callers
    */
+  static async load() {
+    this.init();
+    const total = this.db.prepare("SELECT COUNT(*) AS total FROM benchmark_results").get().total;
+    const latest = await this.getLatest(MAX_RESULTS);
+
+    return {
+      version: "2.0-sqlite",
+      lastUpdated: latest[0]?.timestamp || new Date().toISOString(),
+      results: latest,
+      total,
+    };
+  }
+
   static createEmpty() {
-    this.historyData = {
-      version: "1.0",
+    return {
+      version: "2.0-sqlite",
       lastUpdated: new Date().toISOString(),
       results: [],
     };
-    return this.historyData;
   }
 
   /**
-   * Save history to file
+   * Compatibility no-op for file-based API
    */
-  static async save(data = null) {
-    const toSave = data || this.historyData;
-    
-    if (!toSave) {
-      console.warn("No history data to save");
-      return false;
-    }
-
-    try {
-      toSave.lastUpdated = new Date().toISOString();
-      
-      // Write to file with pretty formatting
-      await writeFile(HISTORY_FILE, JSON.stringify(toSave, null, 2), "utf-8");
-      
-      return true;
-    } catch (error) {
-      console.error(`Error saving history: ${error.message}`);
-      return false;
-    }
+  static async save() {
+    this.init();
+    return true;
   }
 
-  /**
-   * Add new benchmark result
-   * Automatically rotates history to keep last MAX_RESULTS entries
-   */
   static async add(result) {
-    // Ensure history is loaded
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
-    // Validate result
-    if (!result || !result.framework || !result.timestamp) {
-      console.warn("Invalid result data, skipping save");
+    if (!result || !result.framework) {
       return false;
     }
 
-    // Add timestamp if not present
-    if (!result.timestamp) {
-      result.timestamp = new Date().toISOString();
-    }
+    const insert = this.db.prepare(`
+      INSERT INTO benchmark_results (
+        timestamp, framework, endpoint, method,
+        reqPerSec, avgLatency, p50Latency, p90Latency, p99Latency,
+        totalReqs, duration, connections, workers, pipelining,
+        errors, timeouts, non2xx
+      ) VALUES (
+        @timestamp, @framework, @endpoint, @method,
+        @reqPerSec, @avgLatency, @p50Latency, @p90Latency, @p99Latency,
+        @totalReqs, @duration, @connections, @workers, @pipelining,
+        @errors, @timeouts, @non2xx
+      )
+    `);
 
-    // Add to results array (newest first)
-    this.historyData.results.unshift(result);
+    insert.run({
+      timestamp: result.timestamp || new Date().toISOString(),
+      framework: result.framework,
+      endpoint: result.endpoint || "/",
+      method: result.method || "GET",
+      reqPerSec: result.reqPerSec ?? 0,
+      avgLatency: result.avgLatency ?? 0,
+      p50Latency: result.p50Latency ?? 0,
+      p90Latency: result.p90Latency ?? 0,
+      p99Latency: result.p99Latency ?? 0,
+      totalReqs: result.totalReqs ?? 0,
+      duration: result.duration ?? 0,
+      connections: result.connections ?? 0,
+      workers: result.workers ?? 0,
+      pipelining: result.pipelining ?? 0,
+      errors: result.errors ?? 0,
+      timeouts: result.timeouts ?? 0,
+      non2xx: result.non2xx ?? 0,
+    });
 
-    // Rotate if exceeds max
-    if (this.historyData.results.length > MAX_RESULTS) {
-      this.historyData.results = this.historyData.results.slice(0, MAX_RESULTS);
-    }
-
-    // Save to file
-    return await this.save();
+    this.rotate();
+    return true;
   }
 
-  /**
-   * Force reload history from disk
-   * Use this to refresh cache when file was modified by another process
-   */
   static async reload() {
-    this.historyData = null; // Clear cache
-    return await this.load();
+    this.init();
+    return this.load();
   }
 
-  /**
-   * Get latest N results
-   */
   static async getLatest(count = 3) {
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
-    return this.historyData.results.slice(0, count);
+    const rows = this.db
+      .prepare(`
+        SELECT *
+        FROM benchmark_results
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+      `)
+      .all(count);
+
+    return rows.map((row) => this.mapRow(row));
   }
 
-  /**
-   * Get all results for a specific framework
-   */
   static async getByFramework(framework) {
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
-    return this.historyData.results.filter(r => r.framework === framework);
+    const rows = this.db
+      .prepare(`
+        SELECT *
+        FROM benchmark_results
+        WHERE framework = ?
+        ORDER BY timestamp DESC, id DESC
+      `)
+      .all(framework);
+
+    return rows.map((row) => this.mapRow(row));
   }
 
-  /**
-   * Get all results
-   */
   static async getAll() {
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
-    return this.historyData.results;
+    const rows = this.db
+      .prepare(`
+        SELECT *
+        FROM benchmark_results
+        ORDER BY timestamp DESC, id DESC
+      `)
+      .all();
+
+    return rows.map((row) => this.mapRow(row));
   }
 
-  /**
-   * Get latest result for each framework+endpoint+method combination
-   * Returns: { "cpeak:/simple:GET": {...}, "cpeak:/code:POST": {...}, ... }
-   */
   static async getLatestByFramework() {
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
+    const rows = await this.getAll();
     const latest = {};
 
-    // Iterate through results (newest first) and keep first occurrence of each combo
-    for (const result of this.historyData.results) {
+    for (const result of rows) {
       const key = `${result.framework}:${result.endpoint}:${result.method}`;
-      
-      // Only store if we haven't seen this combination yet (keeps newest)
       if (!latest[key]) {
         latest[key] = result;
       }
@@ -185,24 +243,17 @@ export class BenchmarkHistory {
     return latest;
   }
 
-  /**
-   * Clear all history
-   */
   static async clear() {
-    this.createEmpty();
-    return await this.save();
+    this.init();
+    this.db.exec("DELETE FROM benchmark_results");
+    return true;
   }
 
-  /**
-   * Get summary statistics
-   */
   static async getStats() {
-    if (!this.historyData) {
-      await this.load();
-    }
+    this.init();
 
-    const results = this.historyData.results;
-    
+    const results = await this.getAll();
+
     if (results.length === 0) {
       return {
         total: 0,
@@ -215,14 +266,13 @@ export class BenchmarkHistory {
       byFramework: {},
     };
 
-    // Calculate stats per framework (dynamically from config)
     for (const framework of getFrameworkNames()) {
-      const frameworkResults = results.filter(r => r.framework === framework);
-      
+      const frameworkResults = results.filter((r) => r.framework === framework);
+
       if (frameworkResults.length > 0) {
-        const reqPerSecs = frameworkResults.map(r => r.reqPerSec);
-        const latencies = frameworkResults.map(r => r.avgLatency);
-        
+        const reqPerSecs = frameworkResults.map((r) => r.reqPerSec || 0);
+        const latencies = frameworkResults.map((r) => r.avgLatency || 0);
+
         stats.byFramework[framework] = {
           count: frameworkResults.length,
           avgReqPerSec: Math.round(reqPerSecs.reduce((a, b) => a + b, 0) / reqPerSecs.length),
@@ -237,5 +287,5 @@ export class BenchmarkHistory {
   }
 }
 
-// Auto-load on import
+// Initialize on import for fast first request
 await BenchmarkHistory.load();
