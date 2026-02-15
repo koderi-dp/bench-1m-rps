@@ -96,7 +96,52 @@ node-1m-rps/
 
 ## Redis Cluster
 
-Use the Node.js script (not `redis.sh`):
+**Redis Agent is mandatory** - the API always uses the Redis Agent for cluster management. The agent defaults to `http://localhost:3200` if `REDIS_AGENT_URL` is not set.
+
+### Local Setup (Redis on same machine as API)
+
+1. **Start the Redis Agent**:
+   ```bash
+   npm run redis-agent
+   ```
+   The agent runs on port 3200 (configurable via `REDIS_AGENT_PORT`).
+
+2. **Start the API** (in another terminal):
+   ```bash
+   npm run api
+   ```
+   The API will automatically connect to the agent at `http://localhost:3200`.
+
+3. **Setup Redis** via the dashboard or CLI:
+   ```bash
+   # Via dashboard: Menu → Redis Cluster → Setup Redis Cluster
+   # Or via CLI on the Redis machine:
+   node api/scripts/redis.js -setup -n 6
+   ```
+
+### Remote Setup (Redis on a separate machine)
+
+For valid benchmarks with network latency between API and Redis:
+
+1. **On the Redis machine** – clone the project, then:
+   ```bash
+   npm run redis-agent
+   ```
+   The agent runs on port 3200 (configurable via `REDIS_AGENT_PORT`).
+
+2. **Setup Redis** – via agent or CLI on the Redis machine:
+   ```bash
+   node api/scripts/redis.js -setup -n 6 --bind-remote
+   ```
+
+3. **On the API machine** – start the API with:
+   ```bash
+   REDIS_AGENT_URL=http://<redis-machine-ip>:3200 REDIS_HOST=<redis-machine-ip> npm run api
+   ```
+
+   The API will proxy all Redis operations (setup, stop, status, etc.) to the agent. Frameworks connect to Redis via `REDIS_HOST`.
+
+### Redis Script Options
 
 ```bash
 # Setup 6-node cluster
@@ -116,8 +161,9 @@ Options:
 - `-n, --nodes <number>` – Node count (required for setup)
 - `-r, --replicas <number>` – Replicas per master (default: 1)
 - `-prod` – Use redis6-server/redis6-cli
+- `--bind-remote` – Bind to 0.0.0.0 for remote access (setup only)
 
-Cluster data is stored in `../redis-cluster/` relative to the project root.
+Cluster data is stored in `redis-cluster/` in the project root (configurable via `REDIS_CLUSTER_DIR`).
 
 Run frameworks in cluster mode:
 
@@ -203,6 +249,10 @@ npx autocannon -m GET -c 20 -d 20 -p 2 -w 6 http://localhost:3002/simple
 | `API_PORT` | `3100` | API port |
 | `API_KEY` | (none) | Optional API key for auth |
 | `REDIS_CLUSTER` | `false` | `true` for Redis cluster mode |
+| `REDIS_AGENT_URL` | `http://localhost:3200` | Redis Agent URL (mandatory - API always uses agent) |
+| `REDIS_HOST` | `127.0.0.1` | Redis host (derived from REDIS_AGENT_URL if not set) |
+| `REDIS_PORT` | `7000` (cluster) | Redis port |
+| `REDIS_AGENT_PORT` | `3200` | Redis Agent port (when running `npm run redis-agent`) |
 | `LOG_LEVEL` | `info` | Dashboard log level |
 | `DASHBOARD_DEBUG` | (unset) | `1` to log to console |
 

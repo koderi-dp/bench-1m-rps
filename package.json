@@ -9,11 +9,23 @@
   },
   "scripts": {
     "client": "node dashboard/index.js",
-    "api": "node api/server.js"
+    "api": "node api/server.js",
+    "redis-agent": "node agent/server.js",
+    "start": "concurrently --names \"agent,api\" --prefix-colors \"yellow,cyan\" \"npm run redis-agent\" \"npm run api\"",
+    "build:csharp": "cd frameworks/csharp && dotnet publish -c Release -r linux-x64 /p:PublishAot=true -o build && rm -f build/*.dbg build/*.staticwebassets.endpoints.json build/csharp.*",
+    "build:csharp-noaot": "cd frameworks/csharp && dotnet publish -c Release -r linux-x64 /p:PublishAot=false -o build && rm -f build/*.dbg build/*.staticwebassets.endpoints.json"
   },
   "author": "",
   "license": "ISC",
-  "keywords": ["nodejs", "performance", "redis", "cluster", "pm2", "benchmark", "1m-rps"],
+  "keywords": [
+    "nodejs",
+    "performance",
+    "redis",
+    "cluster",
+    "pm2",
+    "benchmark",
+    "1m-rps"
+  ],
   "dependencies": {
     "autocannon": "^8.0.0",
     "better-sqlite3": "^12.6.2",
@@ -27,5 +39,8 @@
     "pino-pretty": "^13.1.3",
     "rotating-file-stream": "^3.2.8",
     "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

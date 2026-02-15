@@ -1,8 +1,8 @@
 import { readdir } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { execRedisCommand } from "../utils/exec.js";
-import { COLORS } from "../config/constants.js";
+import { execRedisCommand } from "../../api/utils/exec.js";
+import { COLORS } from "../../api/config/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,13 +10,24 @@ const __dirname = dirname(__filename);
 /**
  * Redis Service
  * Handles Redis cluster operations and statistics
+ * Used by the Redis Agent to manage Redis clusters
  */
 export class RedisService {
   constructor(execFn = execRedisCommand, redisClient = null) {
     this.exec = execFn;
     this.redis = redisClient;
-    // Redis cluster is one level up from project root (../redis-cluster from node-1m-rps)
-    this.clusterPath = join(__dirname, "../../../redis-cluster");
+    // Redis cluster directory: configurable via REDIS_CLUSTER_DIR
+    // Default: redis-cluster/ (in project root)
+    const projectRoot = join(__dirname, "../.."); // From agent/services/ -> agent/ -> project root
+    if (process.env.REDIS_CLUSTER_DIR) {
+      // Use absolute path or path relative to project root
+      this.clusterPath = process.env.REDIS_CLUSTER_DIR.startsWith("/")
+        ? process.env.REDIS_CLUSTER_DIR
+        : join(projectRoot, process.env.REDIS_CLUSTER_DIR);
+    } else {
+      // Default: redis-cluster/ in project root
+      this.clusterPath = join(projectRoot, "redis-cluster");
+    }
     
     // Cache for master ports (refreshed every 5s)
     this.masterPortsCache = null;
@@ -122,20 +133,24 @@ export class RedisService {
   }
 
   /**
-   * Get statistics for Redis cluster masters
+   * Get statistics for all Redis cluster nodes (masters + replicas)
    * @returns {Promise<Array<string>>} Formatted stats with color tags
    */
   async getStats() {
     try {
-      const masterPorts = await this.getMasterPorts();
+      const allPorts = await this.detectNodes();
       
-      if (masterPorts.length === 0) {
+      if (allPorts.length === 0) {
         return ["{gray-fg}Redis cluster not running{/gray-fg}"];
       }
 
-      // Get stats for all master nodes
+      // Get master ports to identify which nodes are masters
+      const masterPorts = await this.getMasterPorts();
+      const masterPortsSet = new Set(masterPorts);
+
+      // Get stats for all nodes (masters + replicas)
       const stats = await Promise.all(
-        masterPorts.map(port => this.getNodeStats(port))
+        allPorts.map(port => this.getNodeStats(port, masterPortsSet.has(port)))
       );
 
       return stats.filter(Boolean);
@@ -147,9 +162,10 @@ export class RedisService {
   /**
    * Get statistics for a single Redis node
    * @param {number} port - Redis port number
+   * @param {boolean} isMaster - Whether this node is a master
    * @returns {Promise<string|null>} Formatted stats or null on error
    */
-  async getNodeStats(port) {
+  async getNodeStats(port, isMaster = true) {
     try {
       // Run commands in parallel for this node
       const [statsResult, memoryResult, clientsResult] = await Promise.all([
@@ -170,15 +186,16 @@ export class RedisService {
       const connMatch = clientsResult.stdout.match(/connected_clients:(\d+)/);
       const connections = connMatch ? parseInt(connMatch[1], 10) : 0;
 
-      // Format output
+      // Format output with separate type column
       const portDisplay = `${port}`.padEnd(6);
+      const typeDisplay = isMaster ? "Master".padEnd(8) : "Replica".padEnd(8);
       const opsDisplay = `${opsPerSec.toLocaleString()}`.padStart(10);
       const memDisplay = memory.padStart(10);
       const connDisplay = `${connections}`.padStart(8);
 
       const color = opsPerSec > 0 ? COLORS.success : COLORS.warning;
 
-      return `{${color}-fg}${portDisplay}  ${opsDisplay} ops/s  ${memDisplay}  ${connDisplay} conn{/${color}-fg}`;
+      return `{${color}-fg}${portDisplay}  ${typeDisplay}  ${opsDisplay} ops/s  ${memDisplay}  ${connDisplay} conn{/${color}-fg}`;
     } catch (error) {
       return null;
     }
@@ -222,9 +239,10 @@ export class RedisService {
    * Setup Redis cluster
    * @param {number} nodes - Number of nodes
    * @param {number} replicas - Replicas per master (default: auto-calculated)
+   * @param {{ bindRemote?: boolean }} options - bindRemote: use bind 0.0.0.0 for remote access
    * @returns {Promise<{success: boolean, message: string}>}
    */
-  async setup(nodes, replicas = null) {
+  async setup(nodes, replicas = null, options = {}) {
     // Auto-calculate replicas if not specified:
     // - 6 nodes = 1 replica (3 masters + 3 replicas)
     // - 3 nodes = 0 replicas (3 masters)
@@ -233,8 +251,10 @@ export class RedisService {
       replicas = Math.max(0, Math.floor(nodes / 3) - 1);
     }
     
+    const bindRemote = options.bindRemote ? " --bind-remote" : "";
+    
     try {
-      const { stdout } = await this.exec(`node api/scripts/redis.js -setup -n ${nodes} -r ${replicas}`);
+      const { stdout } = await this.exec(`node api/scripts/redis.js -setup -n ${nodes} -r ${replicas}${bindRemote}`);
       
       // Invalidate cache after cluster changes
       this.invalidateCache();

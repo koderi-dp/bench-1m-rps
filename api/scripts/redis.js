@@ -10,7 +10,12 @@ const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, "../..");
-const redisClusterRoot = join(projectRoot, "../redis-cluster");
+// Redis cluster directory: configurable via REDIS_CLUSTER_DIR, defaults to redis-cluster/ (in project root)
+const redisClusterRoot = process.env.REDIS_CLUSTER_DIR 
+  ? (process.env.REDIS_CLUSTER_DIR.startsWith("/") 
+      ? process.env.REDIS_CLUSTER_DIR 
+      : join(projectRoot, process.env.REDIS_CLUSTER_DIR))
+  : join(projectRoot, "redis-cluster");
 
 // Colors
 const colors = {
@@ -54,6 +59,7 @@ let command = "";
 let nodeCount = null; // null means auto-detect
 let replicas = 1;
 let isProduction = false;
+let bindRemote = false;
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -66,6 +72,9 @@ for (let i = 0; i < args.length; i++) {
       break;
     case "-prod":
       isProduction = true;
+      break;
+    case "--bind-remote":
+      bindRemote = true;
       break;
     case "-n":
     case "--nodes":
@@ -93,6 +102,7 @@ function showUsage() {
   log("  -n, --nodes <number>     Number of nodes (required for setup, auto-detected for others)");
   log("  -r, --replicas <number>  Replicas per master (default: 1, only for setup)");
   log("  -prod                    Use redis6-server/redis6-cli");
+  log("  --bind-remote           Bind Redis to 0.0.0.0 for remote access (setup only)");
   log("\nExamples:", "yellow");
   log("  node redis.js -setup -n 6        # Setup requires -n", "gray");
   log("  node redis.js -stop              # Auto-detects nodes", "gray");
@@ -110,7 +120,7 @@ if (command !== "setup" && nodeCount === null) {
   const detectedPorts = detectExistingNodes();
   
   if (detectedPorts.length === 0) {
-    log(`\n✗ No existing Redis cluster nodes found in ../redis-cluster/`, "red");
+    log(`\n✗ No existing Redis cluster nodes found in ${redisClusterRoot}`, "red");
     log("Tip: Run setup first with: node api/scripts/redis.js -setup -n 6", "yellow");
     process.exit(1);
   }
@@ -167,6 +177,7 @@ async function setup() {
   }
 
   // Create config for each node
+  const bindAddr = bindRemote ? "0.0.0.0" : "127.0.0.1";
   for (let port = startPort; port <= endPort; port++) {
     const portDir = join(clusterDir, port.toString());
     mkdirSync(portDir, { recursive: true });
@@ -178,7 +189,7 @@ cluster-node-timeout 5000
 save ""
 appendonly no
 protected-mode no
-bind 127.0.0.1
+bind ${bindAddr}
 maxclients 100000
 `;
 

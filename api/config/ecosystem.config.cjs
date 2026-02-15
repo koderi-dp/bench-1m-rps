@@ -34,6 +34,9 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         REDIS_CLUSTER: "true",
+        ...(process.env.REDIS_HOST && { REDIS_HOST: process.env.REDIS_HOST }),
+        ...(process.env.REDIS_PORT && { REDIS_PORT: process.env.REDIS_PORT }),
+        ...(process.env.REDIS_AGENT_URL && { REDIS_AGENT_URL: process.env.REDIS_AGENT_URL }),
       },
     },
   ],

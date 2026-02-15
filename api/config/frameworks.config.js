@@ -81,19 +81,18 @@ export const FRAMEWORKS = {
     reusePort: true,  // Bun's native SO_REUSEPORT - allows multiple fork instances on same port (Linux only)
     instances: 10,
   },
-  // Example: C# .NET implementation (uncomment and configure when ready)
-  // csharp: {
-  //   name: "csharp",
-  //   displayName: "C# (.NET)",
-  //   port: 3004,
-  //   color: "cyan",
-  //   file: "frameworks/csharp/server", // Path to compiled executable
-  //   enabled: false,
-  //   runtime: "dotnet",
-  //   interpreter: "dotnet",
-  //   execMode: "fork",
-  //   instances: 1,
-  // },
+  csharp: {
+    name: "csharp",
+    displayName: "C# (.NET)",
+    port: 3004,
+    color: "cyan",
+    file: "frameworks/csharp/build/csharp", // Path to compiled executable
+    enabled: true,
+    runtime: "dotnet",
+    interpreter: "none", // Use "none" for compiled binaries - PM2 runs the file directly
+    execMode: "fork",
+    instances: 1,
+  },
   // Example: Go implementation (uncomment and configure when ready)
   // go: {
   //   name: "go",
